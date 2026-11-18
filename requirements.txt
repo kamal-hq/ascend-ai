@@ -1,15 +1,8 @@
-# --- Core Frameworks ---
-streamlit>=1.32.0
-crewai>=0.35.0
-
-# --- LangChain & LLM (Pydantic V2 Aligned) ---
-langchain>=0.2.5
+# --- Core Validation ---
+pydantic>=2.7.0
 langchain-community>=0.2.5
-langchain-core>=0.2.9
-langchain-groq>=0.2.0
-litellm>=1.40.0
 
-# --- Agent Web Search & Scaping Tools ---
+# --- Agent Web Search & Scraping Tools ---
 duckduckgo-search==6.2.13
 arxiv>=2.1.0
 beautifulsoup4>=4.12.3
@@ -23,7 +16,10 @@ python-docx>=1.1.0
 # --- Utilities ---
 python-dotenv>=1.0.1
 
-# --- Vector DB (Required for RAG/ingest.py) ---
-chromadb==0.4.24
-sentence-transformers==2.6.1
-numpy<2.0.0
+# --- API, Job Queue & SSE (v3 architecture) ---
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+rq>=1.16.0
+redis>=5.0.0
+sse-starlette>=2.1.0

@@ -1,13 +1,28 @@
-# Credentials
+# Credentials & Env
 .env
+frontend/.env
 
 # Python
 __pycache__/
 venv/
 *.pyc
+.pytest_cache/
 
-# Local Database
+# Local Databases, Caches & Runtime Artifacts
 chroma_db/
+data/*.db*
+data/*.log
+dump.rdb
+scratch_test.py
+
+# Local Reference Assets (not for public repo)
+*.xlsx
+Design a Project UI/
+
+# Frontend (Vite)
+node_modules/
+dist/
+.vite/
 
 # OS files
 .DS_Store

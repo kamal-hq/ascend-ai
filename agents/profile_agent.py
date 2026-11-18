@@ -1,86 +1,64 @@
-import json
-from crewai import Agent, Task, Crew, Process
+"""
+agents/profile_agent.py — Eager Phase structured student profile intelligence.
 
-from utils.key_manager import key_manager
+Uses `groq/openai/gpt-oss-120b` (dedicated pool) via `safe_completion()` to
+produce a validated `ProfileResult` matching `design.md` and `Design a Project UI`.
+Raises cleanly on failure so workers mark job status as 'failed' instead of
+persisting a fake placeholder profile.
+"""
 
-def extract_profile(raw_text):
-    
-    # 1. TEXT TRUNCATION (Fix for 400 BadRequest Context Explosions)
-    # 6000 characters is plenty for a CV, but keeps it well under the token limit
-    safe_text = str(raw_text)[:6000] 
+from agents.common.kickoff import safe_completion
+from agents.schemas import ProfileResult
+from config import MODEL_EAGER_PROFILE
 
-    profile_agent = Agent(
-        role="Profile Intelligence Architect",
-        goal="Extract unstructured student data and perform a rigorous profile strength assessment.",
-        backstory="You are an elite university admissions consultant. You not only extract data but evaluate it critically against top-tier global scholarship standards (like Fulbright, Chevening, DAAD). You are brutally honest about gaps and highly strategic about improvements.",
-        llm=key_manager.get_llm(model="groq/llama-3.3-70b-versatile"), 
-        verbose=True
+_SYSTEM_PROMPT = """You are an elite international university admissions consultant and career strategist.
+Analyze the student's raw background notes, CV text, or LinkedIn dump and produce a rigorous,
+honest assessment calibrated against competitive global scholarships (Fulbright, Chevening, DAAD, Erasmus Mundus).
+
+Instructions:
+1. Extract demographic, academic, experience, skills, and goal fields accurately. Leave unknown numeric/date fields as empty strings, never invent degrees or GPAs.
+2. Write a crisp 2-sentence `summary` capturing who the student is and what they are building toward.
+3. Score `profile_strength_score` strictly from 0 to 100 (a student with solid coursework but no publications, internships, or leadership typically scores 50-62).
+4. Set `strength_label` based on the score:
+   - 80-100: "Strong"
+   - 65-79: "Competitive"
+   - 50-64: "Developing"
+   - 0-49: "Needs Focus"
+5. Set `is_research_track` to true if `target_program` mentions PhD, MPhil, or Master's by Research.
+6. Provide BOTH:
+   - `gap_analysis`: candid narrative summary of missing competitiveness signals
+   - `gap_items`: exactly 3 structured priority gaps with `severity` ("HIGH IMPACT", "REQUIRED", or "MEDIUM")
+7. Provide BOTH:
+   - `improvement_roadmap`: 3 concise single-line action bullets
+   - `roadmap_steps`: 3 structured 2-month blocks (`MONTH 1-2`, `MONTH 3-4`, `MONTH 5-6`) with clear titles & details."""
+
+
+def extract_profile(raw_text: str) -> dict:
+    """Extract and evaluate student profile into a validated `ProfileResult` dict."""
+    safe_text = str(raw_text or "").strip()[:6000]
+    if not safe_text:
+        raise ValueError("Cannot extract profile from empty input text.")
+
+    result = safe_completion(
+        messages=[
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": f"Student raw input:\n\n{safe_text}"},
+        ],
+        response_model=ProfileResult,
+        task_name="Profile Intelligence Extraction",
+        model=MODEL_EAGER_PROFILE,
+        estimated_tokens=1100,
     )
 
-    extraction_task = Task(
-        description=f"""
-        Parse the following raw notes or CV into a strict JSON object.
-        Raw input: {safe_text}
-        
-        1. Extract the standard demographic and academic data.
-        2. Calculate a 'profile_strength_score' (0-100) based on academic excellence, research output, leadership, and work experience. Be strict. A student with good grades but no research or leadership should score around 50-60.
-        3. Provide a brutally honest 'gap_analysis' detailing exactly what is missing to be competitive for top international scholarships (e.g., lack of publications, no volunteer work, insufficient work experience).
-        4. Provide an 'improvement_roadmap' with 3 specific, actionable steps they can take in the next 6 months to fix these gaps.
+    # Keep string list and structured step list synced cleanly
+    if result.roadmap_steps and not result.improvement_roadmap:
+        result.improvement_roadmap = [
+            f"{step.timeframe}: {step.title} — {step.detail}"
+            for step in result.roadmap_steps
+        ]
+    if not result.gap_analysis and result.gap_items:
+        result.gap_analysis = " ".join(
+            f"{item.title}: {item.detail}" for item in result.gap_items
+        )
 
-        Return ONLY a valid JSON object matching this exact schema. No markdown fences, no preamble:
-        {{
-          "name": "", 
-          "degree": "", 
-          "university": "", 
-          "cgpa": "", 
-          "graduation_year": "",
-          "research_interests": [], 
-          "work_experience": [], 
-          "extracurriculars": [],
-          "target_country": [], 
-          "target_program": "", 
-          "target_scholarships": [],
-          "career_goal": "", 
-          "key_strengths": [], 
-          "special_skills": [],
-          "is_research_track": false,
-          "profile_strength_score": 0,
-          "gap_analysis": "",
-          "improvement_roadmap": []
-        }}
-        Set 'is_research_track' to true if target_program contains PhD, MS by research, or MPhil.
-        """,
-        expected_output="Pure JSON string matching the defined schema.",
-        agent=profile_agent
-    )
-
-    crew = Crew(agents=[profile_agent], tasks=[extraction_task], process=Process.sequential)
-    
-    # 2. SAFETY NET (Prevents Streamlit from crashing if API fails)
-    try:
-        result = crew.kickoff()
-        clean_json = result.raw.strip().replace("```json", "").replace("```", "")
-        return json.loads(clean_json)
-    except Exception as e:
-        print(f"\n[🚨 CRITICAL] Profile Extraction Error: {e}")
-        # Fallback profile to keep the app running so Modules A, B, and C can still execute
-        return {
-          "name": "Student", 
-          "degree": "Undergraduate", 
-          "university": "University", 
-          "cgpa": "N/A", 
-          "graduation_year": "N/A",
-          "research_interests": ["Technology"], 
-          "work_experience": [], 
-          "extracurriculars": [],
-          "target_country": ["Global"], 
-          "target_program": "Master's Degree", 
-          "target_scholarships": [],
-          "career_goal": "Advance in Tech", 
-          "key_strengths": ["Adaptability"], 
-          "special_skills": ["Digital Literacy"],
-          "is_research_track": False,
-          "profile_strength_score": 50,
-          "gap_analysis": "The system experienced an API overload while analyzing your profile. Gap analysis bypassed.",
-          "improvement_roadmap": ["Try submitting a slightly shorter background description next time."]
-        }
+    return result.model_dump()
