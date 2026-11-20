@@ -174,6 +174,13 @@ def list_jobs(limit: int = 20, offset: int = 0) -> list[dict]:
     return out
 
 
+def count_jobs() -> int:
+    """Return total stored job rows cleanly."""
+    with _connect() as conn:
+        row = conn.execute("SELECT COUNT(*) AS cnt FROM jobs").fetchone()
+    return int(row["cnt"]) if row else 0
+
+
 # ---------------------------------------------------------------------------
 # Capability & Result operations
 # ---------------------------------------------------------------------------

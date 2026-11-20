@@ -62,18 +62,20 @@ Open `http://127.0.0.1:5173` in your browser.
 
 ---
 
-## Deploying Live (Vercel + Render / Railway)
+## Deploying Free ($0/mo: Vercel Hobby + Render Free)
 
-Because FastAPI runs asynchronous background threads, SQLite (`data/ascend.db`, `data/cache.db`), and persistent SSE streams (which are incompatible with short-lived stateless Vercel Serverless functions), deploy using the standard split setup:
+Ascend AI is tuned for **100% free-tier hosting** with zero paid databases or Redis add-ons:
+- **Wake-up pre-flight popup:** When a user lands, the frontend runs live `GET /health?warmup=true` retries until the sleeping Render free container wakes up (~25–50s on cold start), warms `data/scholarships.json` (`371` awards) and SQLite, and reports system readiness.
+- **Auto-seeded demo workspace:** On ephemeral free-tier boots starting with an empty SQLite file, [data/demo_seed.json](data/demo_seed.json) populates one realistic `Sara Ahmed` workspace (`0` Groq tokens burned) alongside `371` ranked scholarships.
 
-1. **Backend (`api/` + `worker/` + `agents/`) → [Render](https://render.com) or [Railway](https://railway.app):**
-   * Root directory: `.` (uses included `render.yaml` / `Procfile`)
+1. **Backend (`api/` + `worker/` + `agents/`) → [Render Free Tier](https://render.com) (`plan: free`):**
+   * Use **Blueprint** ([render.yaml](render.yaml)) or **New Web Service** (`Python 3`, root directory `.`)
    * Build: `pip install -r requirements.txt`
    * Start: `uvicorn api.main:app --host 0.0.0.0 --port $PORT`
-   * Env vars: `GROQ_API_KEY`, `CORS_ORIGIN_REGEX=https://.*\.vercel\.app` (or set `CORS_ORIGINS` to your exact Vercel domain)
-2. **Frontend (`frontend/`) → [Vercel](https://vercel.com):**
+   * Env vars: `GROQ_API_KEY`, `CORS_ORIGIN_REGEX=https://.*\.vercel\.app`, `PYTHON_VERSION=3.12.3`
+2. **Frontend (`frontend/`) → [Vercel Hobby (Free)](https://vercel.com):**
    * Root directory: `frontend` (Framework: **Vite**, includes `frontend/vercel.json` SPA rewrites)
-   * Env var: `VITE_API_BASE_URL=https://<your-backend-service>.onrender.com`
+   * Env var: `VITE_API_BASE_URL=https://<your-render-service>.onrender.com` (set before build)
 
 ---
 

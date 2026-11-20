@@ -315,9 +315,20 @@ export interface JobStatusResponse {
   capability_states: Record<string, CapabilityStateInfo>;
 }
 
+export interface SystemChecks {
+  api: boolean;
+  database: boolean;
+  scholarships_loaded: number;
+  ai_configured: boolean;
+  cache_ready: boolean;
+}
+
 export interface HealthResponse {
   status: string;
   redis: boolean;
   workers_active?: number;
+  execution_mode?: "rq" | "async_threads";
   version: string;
+  jobs_count?: number;
+  checks?: SystemChecks;
 }

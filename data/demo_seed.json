@@ -1,0 +1,210 @@
+{
+  "input_preview": "Sara Ahmed — BS Software Engineering, NUST Islamabad (2025), CGPA 3.58. 1 year experience as Junior Machine Learning Engineer (internship + part-time) building medical image classi",
+  "student_name": "Sara Ahmed",
+  "target_program": "MSc Artificial Intelligence",
+  "score": 68,
+  "results": {
+    "context": {
+      "live_rate": 276.818953
+    },
+    "profile": {
+      "name": "Sara Ahmed",
+      "degree": "BS Software Engineering",
+      "university": "NUST Islamabad",
+      "cgpa": "3.58",
+      "graduation_year": "2025",
+      "summary": "Sara Ahmed is a near‑graduate software engineer with a 3.58 GPA who has spent a year developing medical‑image classification models and deploying them via Python/FastAPI microservices. She now aims to secure a fully funded MSc in Artificial Intelligence in Germany or the UK to launch a career in healthcare AI research and engineering leadership.",
+      "research_interests": [
+        "Artificial Intelligence in Healthcare",
+        "Medical Image Analysis"
+      ],
+      "work_experience": [
+        "Junior Machine Learning Engineer (internship + part‑time), 1 year – built medical image classifiers and Python/FastAPI microservices"
+      ],
+      "extracurriculars": [
+        "President, Women in Computing chapter (120 members)"
+      ],
+      "target_country": [
+        "Germany",
+        "United Kingdom"
+      ],
+      "target_program": "MSc Artificial Intelligence",
+      "target_scholarships": [
+        "DAAD EPOS",
+        "Chevening",
+        "Erasmus Mundus"
+      ],
+      "career_goal": "Lead AI‑driven healthcare research and engineering teams to develop clinically impactful solutions",
+      "key_strengths": [
+        "Hands‑on ML model development",
+        "Full‑stack deployment of AI services",
+        "Leadership of student community"
+      ],
+      "special_skills": [
+        "Python",
+        "FastAPI",
+        "TensorFlow/PyTorch",
+        "Medical imaging pipelines"
+      ],
+      "is_research_track": false,
+      "profile_strength_score": 68,
+      "strength_label": "Competitive",
+      "gap_analysis": "While Sara has solid technical experience and leadership, she lacks peer‑reviewed publications, formal research exposure, and strong evidence of language/test scores that top fully‑funded AI scholarships prioritize. Additionally, her profile would benefit from clearer alignment with European research labs and a stronger academic record in mathematics/statistics.",
+      "gap_items": [
+        {
+          "title": "Peer‑reviewed Publication",
+          "detail": "No journal or conference papers demonstrating research impact, which many scholarship committees view as essential for AI candidates.",
+          "severity": "HIGH IMPACT"
+        },
+        {
+          "title": "Research Experience / Lab Work",
+          "detail": "Absence of a dedicated research internship or thesis work limits evidence of independent inquiry and suitability for research‑oriented programs.",
+          "severity": "REQUIRED"
+        },
+        {
+          "title": "Standardized Test Scores & Academic Depth",
+          "detail": "Missing GRE (quantitative) and IELTS/TOEFL scores, plus limited coursework proof in advanced math/statistics, reduces competitiveness for DAAD and Chevening.",
+          "severity": "MEDIUM"
+        }
+      ],
+      "improvement_roadmap": [
+        "Publish a short conference paper on your medical‑image classifier project",
+        "Secure a 3‑month research internship in a university or industry AI lab",
+        "Prepare and achieve strong GRE quantitative and IELTS scores while completing advanced math MOOCs"
+      ],
+      "roadmap_steps": [
+        {
+          "timeframe": "MONTH 1-2",
+          "title": "Paper Draft & Submission",
+          "detail": "Refine your image‑classification project into a conference paper, write, and submit to a relevant AI/medical imaging venue."
+        },
+        {
+          "timeframe": "MONTH 3-4",
+          "title": "Research Internship Placement",
+          "detail": "Apply to 3‑5 AI research labs (university or industry) for a short‑term internship; focus on projects that can feed into a publication."
+        },
+        {
+          "timeframe": "MONTH 5-6",
+          "title": "Test Prep & Coursework",
+          "detail": "Enroll in GRE quantitative prep and IELTS courses; complete online modules in linear algebra, probability, and statistics to bolster academic depth."
+        }
+      ]
+    },
+    "sop_draft": {
+      "title": "Statement of Purpose – MSc Artificial Intelligence",
+      "target_context": "Graduate admissions for fully funded MSc programs in Germany and the United Kingdom",
+      "word_count": 366,
+      "paragraphs": [
+        "I am a soon‑to‑graduate software engineer from NUST Islamabad, where I earned a 3.58 GPA in my BS in Software Engineering. Over the past year I have worked as a Junior Machine Learning Engineer, building medical‑image classification models and deploying them as Python/FastAPI microservices. This hands‑on experience has taught me how to translate research ideas into production‑ready solutions that can directly impact patient care. My ambition is to pursue a fully funded MSc in Artificial Intelligence in Germany or the UK, where I can deepen my expertise in AI for healthcare and eventually lead interdisciplinary teams that develop clinically impactful technologies.",
+        "During my internship I collaborated closely with clinicians to curate imaging datasets, design convolutional neural networks, and evaluate model performance against real‑world benchmarks. I also served as President of the Women in Computing chapter, guiding 120 peers through workshops on coding, data science, and career development. These leadership responsibilities sharpened my communication skills and reinforced my commitment to fostering inclusive innovation in tech. I am eager to bring this blend of technical rigor and community engagement to a research‑oriented program that values both academic excellence and societal impact.",
+        "My research interests lie at the intersection of artificial intelligence and medical image analysis. I plan to explore advanced deep‑learning architectures that can detect subtle pathologies in low‑contrast scans, and to investigate explainability techniques that make AI decisions transparent to clinicians. By integrating my practical deployment experience with rigorous research, I aim to contribute to the next generation of AI‑driven diagnostic tools. I am confident that the collaborative research culture and state‑of‑the‑art facilities in Germany and the UK will provide the ideal environment for me to grow into a leader in healthcare AI.",
+        "I am committed to addressing the gaps in my profile by publishing a conference paper on my current project, securing a short‑term research internship, and achieving strong GRE quantitative and IELTS scores. These steps will demonstrate my readiness for a research‑intensive curriculum and align my background with the expectations of top scholarship programs such as DAAD EPOS, Chevening, and Erasmus Mundus. I look forward to contributing my skills, passion, and leadership to your program and to advancing AI solutions that improve patient outcomes worldwide."
+      ],
+      "key_themes": [
+        "hands‑on AI development",
+        "medical image analysis",
+        "full‑stack deployment",
+        "leadership",
+        "community engagement",
+        "research ambition",
+        "gap‑bridging plan"
+      ],
+      "full_text": "I am a soon‑to‑graduate software engineer from NUST Islamabad, where I earned a 3.58 GPA in my BS in Software Engineering. Over the past year I have worked as a Junior Machine Learning Engineer, building medical‑image classification models and deploying them as Python/FastAPI microservices. This hands‑on experience has taught me how to translate research ideas into production‑ready solutions that can directly impact patient care. My ambition is to pursue a fully funded MSc in Artificial Intelligence in Germany or the UK, where I can deepen my expertise in AI for healthcare and eventually lead interdisciplinary teams that develop clinically impactful technologies.\n\nDuring my internship I collaborated closely with clinicians to curate imaging datasets, design convolutional neural networks, and evaluate model performance against real‑world benchmarks. I also served as President of the Women in Computing chapter, guiding 120 peers through workshops on coding, data science, and career development. These leadership responsibilities sharpened my communication skills and reinforced my commitment to fostering inclusive innovation in tech. I am eager to bring this blend of technical rigor and community engagement to a research‑oriented program that values both academic excellence and societal impact.\n\nMy research interests lie at the intersection of artificial intelligence and medical image analysis. I plan to explore advanced deep‑learning architectures that can detect subtle pathologies in low‑contrast scans, and to investigate explainability techniques that make AI decisions transparent to clinicians. By integrating my practical deployment experience with rigorous research, I aim to contribute to the next generation of AI‑driven diagnostic tools. I am confident that the collaborative research culture and state‑of‑the‑art facilities in Germany and the UK will provide the ideal environment for me to grow into a leader in healthcare AI.\n\nI am committed to addressing the gaps in my profile by publishing a conference paper on my current project, securing a short‑term research internship, and achieving strong GRE quantitative and IELTS scores. These steps will demonstrate my readiness for a research‑intensive curriculum and align my background with the expectations of top scholarship programs such as DAAD EPOS, Chevening, and Erasmus Mundus. I look forward to contributing my skills, passion, and leadership to your program and to advancing AI solutions that improve patient outcomes worldwide."
+    },
+    "career_paths": {
+      "summary": "Sara Ahmed, a near‑graduate software engineer with hands‑on ML model development, full‑stack AI deployment, and leadership experience, is positioned for entry‑level roles that leverage her Python, FastAPI, and medical imaging expertise while building a portfolio for future research or MSc opportunities.",
+      "roles": [
+        {
+          "title": "Python Developer",
+          "match_reason": "Directly aligns with Sara’s core Python, FastAPI, and TensorFlow/PyTorch skills and her experience deploying ML models as microservices.",
+          "entry_pkr_monthly": "90,000 - 180,000",
+          "required_skills": [
+            "Python",
+            "FastAPI",
+            "TensorFlow/PyTorch",
+            "REST API design",
+            "Git",
+            "CI/CD"
+          ],
+          "skill_gaps": [
+            "Advanced cloud deployment (AWS/GCP)",
+            "Container orchestration (Docker/Kubernetes)"
+          ],
+          "demand_outlook": "High"
+        },
+        {
+          "title": "Machine Learning Engineer",
+          "match_reason": "Builds on her ML model development and deployment experience, offering a clear path to healthcare AI projects.",
+          "entry_pkr_monthly": "80,000 - 140,000",
+          "required_skills": [
+            "Python",
+            "TensorFlow/PyTorch",
+            "Data preprocessing",
+            "Model evaluation",
+            "Git",
+            "SQL"
+          ],
+          "skill_gaps": [
+            "MLOps pipelines",
+            "Model monitoring",
+            "Advanced statistics"
+          ],
+          "demand_outlook": "High"
+        },
+        {
+          "title": "Data Analyst (Healthcare Focus)",
+          "match_reason": "Utilizes her data handling and medical imaging pipeline skills in a role that values domain knowledge and analytical rigor.",
+          "entry_pkr_monthly": "70,000 - 130,000",
+          "required_skills": [
+            "Python",
+            "SQL",
+            "Data visualization",
+            "Statistical analysis",
+            "Excel"
+          ],
+          "skill_gaps": [
+            "Business intelligence tools (Tableau/PowerBI)",
+            "Advanced statistical modeling"
+          ],
+          "demand_outlook": "High"
+        },
+        {
+          "title": "Full‑Stack Developer (AI Services)",
+          "match_reason": "Combines her backend deployment experience with front‑end integration for AI‑driven healthcare solutions.",
+          "entry_pkr_monthly": "80,000 - 150,000",
+          "required_skills": [
+            "Python",
+            "FastAPI",
+            "JavaScript",
+            "React/Vue",
+            "Git",
+            "REST APIs"
+          ],
+          "skill_gaps": [
+            "Front‑end framework depth",
+            "UX/UI principles"
+          ],
+          "demand_outlook": "High"
+        },
+        {
+          "title": "Technical Lead – AI Projects",
+          "match_reason": "Leverages her leadership of a student community and technical expertise to manage small AI teams and projects.",
+          "entry_pkr_monthly": "100,000 - 200,000",
+          "required_skills": [
+            "Python",
+            "FastAPI",
+            "TensorFlow/PyTorch",
+            "Project management",
+            "Agile methodologies",
+            "Team leadership"
+          ],
+          "skill_gaps": [
+            "Formal project management certification (PMP/Agile)",
+            "Strategic planning"
+          ],
+          "demand_outlook": "High"
+        }
+      ]
+    }
+  }
+}

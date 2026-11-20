@@ -56,5 +56,5 @@ Sequential roadmap from initial v2 baseline to shipped v3 product (Atomic Hybrid
 - [x] Run live full-stack E2E verification across Vite UI (`:4173`), FastAPI CORS (`:8010`), RQ `SimpleWorker`, Redis (`:6379`), SQLite, and all 11 atomic capabilities
 - [x] Update `requirements.txt` (removed unused `streamlit`, `crewai`, `litellm`, `chromadb`, `sentence-transformers`, `numpy`)
 - [x] Merge `Scholarship Guide Book.xlsx` into `data/scholarships.json` (`371` deduplicated scholarships, `301` verified portal URLs) & expand country-code matching
-- [x] Configure deployment (`frontend/vercel.json`, `CORS_ORIGIN_REGEX`, `render.yaml`, `Procfile`)
+- [x] Configure **$0 free-tier** deployment (`plan: free` in `render.yaml`, `frontend/vercel.json`, `CORS_ORIGIN_REGEX`, auto-seeded `data/demo_seed.json` on empty DB cold boots, `/health?warmup=true` readiness + landing `SystemBootOverlay` wake-up modal)
 - [x] Retire legacy files (`app.py`, `ingest.py`, `agents/module_a/b/c.py`, `worker/modules.py`, `utils/key_manager.py`, temp logs/scripts) and sync docs (`README.md`, `architecture.md`, `rules.md`, `memory.md`, `Phase-doc.md`)

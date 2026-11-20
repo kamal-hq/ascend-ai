@@ -30,6 +30,7 @@ export function Sidebar({
   onDeleteSession,
   liveRate,
   health,
+  onOpenHealthCheck,
   showAllHistory,
   onToggleShowAll,
 }: {
@@ -42,6 +43,7 @@ export function Sidebar({
   onDeleteSession: (jobId: string) => void;
   liveRate: number;
   health: HealthResponse | null;
+  onOpenHealthCheck: () => void;
   showAllHistory: boolean;
   onToggleShowAll: () => void;
 }) {
@@ -149,12 +151,17 @@ export function Sidebar({
           </p>
         </div>
 
-        <div className="system-status">
+        <button
+          type="button"
+          className="system-status"
+          onClick={onOpenHealthCheck}
+          title="Run system readiness & wake-up check"
+        >
           <span>
             <i className={apiOnline ? "" : "warn"} /> {statusLabel}
           </span>
           <span>API {health?.version || "v3"}</span>
-        </div>
+        </button>
       </aside>
     </>
   );

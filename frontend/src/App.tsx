@@ -8,6 +8,7 @@ import {
   subscribeCapabilityStream,
   subscribeJobStream,
   triggerCapability,
+  wakeBackend,
 } from "@/api/client";
 import { CapabilityModal } from "@/components/CapabilityModal";
 import { Icon, type IconName } from "@/components/Icon";
@@ -15,6 +16,10 @@ import { IntakeView, type EagerProgressState } from "@/components/IntakeView";
 import { OverviewView } from "@/components/OverviewView";
 import { getInitials, Sidebar } from "@/components/Sidebar";
 import { CAPABILITY_GROUPS, StudioView } from "@/components/StudioView";
+import {
+  SystemBootOverlay,
+  type BootCheckState,
+} from "@/components/SystemBootOverlay";
 import type {
   CapabilityName,
   CapabilityStatus,
@@ -63,7 +68,24 @@ export default function App() {
     error: null,
   });
 
+  const [bootState, setBootState] = useState<BootCheckState>({
+    visible: true,
+    phase: "waking",
+    attempt: 1,
+    elapsedSec: 0,
+    health: null,
+    error: null,
+    manualInspect: false,
+  });
+
   const cleanupsRef = useRef<Array<() => void>>([]);
+  const bootAbortRef = useRef<AbortController | null>(null);
+  const bootAutoCloseRef = useRef<number | null>(null);
+  const activeJobIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeJobIdRef.current = activeJob?.job_id ?? null;
+  }, [activeJob]);
 
   const clearStreams = useCallback(() => {
     for (const stop of cleanupsRef.current) stop();
@@ -96,33 +118,126 @@ export default function App() {
     [clearStreams],
   );
 
-  useEffect(() => {
-    let mounted = true;
-    const boot = async () => {
-      try {
-        const h = await checkHealth();
-        if (mounted) setHealth(h);
-      } catch {
-        if (mounted) setHealth(null);
+  const dismissBootOverlay = useCallback(() => {
+    bootAbortRef.current?.abort();
+    bootAbortRef.current = null;
+    if (bootAutoCloseRef.current !== null) {
+      window.clearTimeout(bootAutoCloseRef.current);
+      bootAutoCloseRef.current = null;
+    }
+    setBootState((prev) => ({ ...prev, visible: false }));
+  }, []);
+
+  const runBootCheck = useCallback(
+    async (manualInspect = false) => {
+      bootAbortRef.current?.abort();
+      if (bootAutoCloseRef.current !== null) {
+        window.clearTimeout(bootAutoCloseRef.current);
+        bootAutoCloseRef.current = null;
       }
-      const rows = await refreshSessions();
-      if (!mounted) return;
-      const latestCompleted = rows.find((r) => r.status === "completed");
-      if (latestCompleted) {
-        try {
-          await loadJob(latestCompleted.job_id);
-        } catch {
-          setIntakeMode(true);
+
+      const controller = new AbortController();
+      bootAbortRef.current = controller;
+      const startedAt = Date.now();
+      let latestAttempt = 1;
+
+      setBootState({
+        visible: true,
+        phase: "waking",
+        attempt: 1,
+        elapsedSec: 0,
+        health: null,
+        error: null,
+        manualInspect,
+      });
+
+      const elapsedTimer = window.setInterval(() => {
+        if (!controller.signal.aborted) {
+          setBootState((prev) => ({
+            ...prev,
+            elapsedSec: (Date.now() - startedAt) / 1000,
+          }));
         }
-      } else {
-        setIntakeMode(true);
+      }, 400);
+
+      try {
+        const res = await wakeBackend({
+          maxWaitMs: 75_000,
+          attemptTimeoutMs: 9_000,
+          retryDelayMs: 2_000,
+          signal: controller.signal,
+          onAttempt: (attempt, elapsedMs) => {
+            latestAttempt = attempt;
+            setBootState((prev) => ({
+              ...prev,
+              attempt,
+              elapsedSec: elapsedMs / 1000,
+            }));
+          },
+        });
+
+        window.clearInterval(elapsedTimer);
+        if (controller.signal.aborted) return;
+
+        setHealth(res.health);
+        const rows = await refreshSessions();
+        if (controller.signal.aborted) return;
+
+        if (!activeJobIdRef.current) {
+          const latestCompleted = rows.find((r) => r.status === "completed");
+          if (latestCompleted) {
+            try {
+              await loadJob(latestCompleted.job_id);
+            } catch {
+              setIntakeMode(true);
+            }
+          } else {
+            setIntakeMode(true);
+          }
+        }
+
+        setBootState({
+          visible: true,
+          phase: "ready",
+          attempt: res.attempts,
+          elapsedSec: Math.max(0.1, res.elapsedMs / 1000),
+          health: res.health,
+          error: null,
+          manualInspect,
+        });
+
+        if (!manualInspect) {
+          bootAutoCloseRef.current = window.setTimeout(() => {
+            setBootState((prev) => ({ ...prev, visible: false }));
+          }, 900);
+        }
+      } catch (err) {
+        window.clearInterval(elapsedTimer);
+        if (controller.signal.aborted) return;
+        setHealth(null);
+        setBootState({
+          visible: true,
+          phase: "error",
+          attempt: latestAttempt,
+          elapsedSec: (Date.now() - startedAt) / 1000,
+          health: null,
+          error:
+            err instanceof Error
+              ? err.message
+              : "Backend server did not respond in time.",
+          manualInspect,
+        });
       }
-    };
-    void boot();
+    },
+    [loadJob, refreshSessions],
+  );
+
+  useEffect(() => {
+    void runBootCheck(false);
 
     const timer = window.setInterval(async () => {
       try {
-        const h = await checkHealth();
+        const h = await checkHealth(false, 6000);
         setHealth(h);
       } catch {
         setHealth(null);
@@ -130,11 +245,14 @@ export default function App() {
     }, 30000);
 
     return () => {
-      mounted = false;
+      bootAbortRef.current?.abort();
+      if (bootAutoCloseRef.current !== null) {
+        window.clearTimeout(bootAutoCloseRef.current);
+      }
       window.clearInterval(timer);
       clearStreams();
     };
-  }, [clearStreams, loadJob, refreshSessions]);
+  }, [clearStreams, runBootCheck]);
 
   const handleAnalyze = async (inputText: string) => {
     clearStreams();
@@ -303,6 +421,10 @@ export default function App() {
         onDeleteSession={(jid) => void handleDeleteSession(jid)}
         liveRate={liveRate}
         health={health}
+        onOpenHealthCheck={() => {
+          setSidebarOpen(false);
+          void runBootCheck(true);
+        }}
         showAllHistory={showAllHistory}
         onToggleShowAll={() => setShowAllHistory((v) => !v)}
       />
@@ -406,6 +528,12 @@ export default function App() {
           }}
         />
       )}
+
+      <SystemBootOverlay
+        boot={bootState}
+        onRetry={() => void runBootCheck(Boolean(bootState.manualInspect))}
+        onDismiss={dismissBootOverlay}
+      />
     </div>
   );
 }

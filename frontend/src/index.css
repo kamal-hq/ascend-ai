@@ -267,12 +267,18 @@
   font-size: 14px;
 }
 .system-status {
+  width: 100%;
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding: 14px 4px 0;
   color: #8d97a7;
   font-size: 10px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.system-status:hover {
+  color: #19366d;
 }
 .system-status span {
   display: flex;
@@ -1920,4 +1926,181 @@
     border-top: 1px solid #dce2e8;
     border-left: 0;
   }
+}
+
+
+/* Free-Tier System Readiness / Wake-Up Modal */
+.system-boot-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 29, 53, 0.42);
+  backdrop-filter: blur(5px);
+}
+.system-boot-card {
+  width: 100%;
+  max-width: 520px;
+  padding: 26px 26px 22px;
+  border: 1px solid #dfe5ec;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(17, 36, 68, 0.22);
+}
+.system-boot-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.system-boot-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.system-boot-brand .brand-mark {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  color: #ffffff;
+  background: #14366e;
+}
+.boot-eyebrow {
+  display: block;
+  color: #0d9488;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.9px;
+}
+.system-boot-brand h2 {
+  margin-top: 2px;
+  color: #142748;
+  font-family: "DM Serif Display", Georgia, serif;
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 1.15;
+}
+.boot-pill {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.boot-pill.waking {
+  color: #14366e;
+  background: #eef3fa;
+}
+.boot-pill.ready {
+  color: #087b6c;
+  background: #e3f5f1;
+}
+.boot-pill.error {
+  color: #b54848;
+  background: #fbeeee;
+}
+.boot-subtitle {
+  margin-top: 12px;
+  color: #5b6779;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.boot-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+}
+.boot-step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid #edf0f5;
+  border-radius: 10px;
+  background: #f9fbfd;
+}
+.boot-step strong {
+  display: block;
+  color: #21324b;
+  font-size: 13px;
+  font-weight: 700;
+}
+.boot-step small {
+  display: block;
+  margin-top: 2px;
+  color: #6b7688;
+  font-size: 11.5px;
+}
+.boot-step-badge {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+}
+.boot-step-badge.ok {
+  color: #087b6c;
+  background: #dff4ef;
+}
+.boot-step-badge.warn {
+  color: #b46a10;
+  background: #fef4e2;
+}
+.boot-step-badge.fail {
+  color: #b54848;
+  background: #fbeeee;
+}
+.boot-step-spinner {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border: 2.5px solid #dbe4ef;
+  border-top-color: #0d9488;
+  border-radius: 50%;
+  animation: boot-spin 0.85s linear infinite;
+}
+@keyframes boot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.boot-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+.boot-primary,
+.boot-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 15px;
+  border-radius: 9px;
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.boot-primary {
+  color: #ffffff;
+  background: #14366e;
+}
+.boot-primary:hover {
+  background: #0f2a56;
+}
+.boot-secondary {
+  border: 1px solid #d5dde7;
+  color: #46556b;
+  background: #ffffff;
+}
+.boot-secondary:hover {
+  background: #f5f7fa;
 }

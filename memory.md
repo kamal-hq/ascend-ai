@@ -65,3 +65,4 @@ Living record of project history, architectural decisions, verified bugs/quirks,
 | `2026-11-18` | Remove Kinza Irshad from `README.md` | Requested cleanup upon project reboot |
 | `2026-11-18` | Merge `Scholarship Guide Book.xlsx` → `371` scholarships | Consolidated curated sheets (excluding personal checklists), normalized serial dates/bonds, preserved 301 verified URLs, expanded `_COUNTRY_CODES` |
 | `2026-11-18` | Split deploy: Vercel (`frontend/`) + Render/Railway (`api/`) | Vercel hosts static Vite SPA (`frontend/vercel.json`); FastAPI background threads + SQLite + SSE run persistently on Render (`render.yaml`) / Railway (`Procfile`) with `CORS_ORIGIN_REGEX` |
+| `2026-11-20` | $0 Free-Tier Optimization (`plan: free` + Boot Wake-Up Overlay + Demo Auto-Seed) | Enforced `plan: free` in `render.yaml`; added `data/demo_seed.json` auto-seed on empty DB cold boots; added `GET /health?warmup=true` readiness checks + `SystemBootOverlay` wake-up retry loop on landing |

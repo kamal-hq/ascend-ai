@@ -27,8 +27,79 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function checkHealth(): Promise<HealthResponse> {
-  return apiJson<HealthResponse>("/health");
+export async function checkHealth(
+  warmup = false,
+  timeoutMs = 9000,
+  externalSignal?: AbortSignal,
+): Promise<HealthResponse> {
+  const controller = new AbortController();
+  const onExternalAbort = () => controller.abort();
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      controller.abort();
+    } else {
+      externalSignal.addEventListener("abort", onExternalAbort, { once: true });
+    }
+  }
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const query = warmup ? "?warmup=true" : "";
+    return await apiJson<HealthResponse>(`/health${query}`, { signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", onExternalAbort);
+  }
+}
+
+export async function wakeBackend(options?: {
+  maxWaitMs?: number;
+  attemptTimeoutMs?: number;
+  retryDelayMs?: number;
+  onAttempt?: (attempt: number, elapsedMs: number) => void;
+  signal?: AbortSignal;
+}): Promise<{ health: HealthResponse; elapsedMs: number; attempts: number }> {
+  const maxWaitMs = options?.maxWaitMs ?? 75_000;
+  const attemptTimeoutMs = options?.attemptTimeoutMs ?? 9_000;
+  const retryDelayMs = options?.retryDelayMs ?? 2_000;
+  const startedAt = Date.now();
+  let attempt = 0;
+  let lastError: Error | null = null;
+
+  while (true) {
+    if (options?.signal?.aborted) {
+      throw new Error("Wake-up check cancelled");
+    }
+    attempt += 1;
+    options?.onAttempt?.(attempt, Date.now() - startedAt);
+    try {
+      const health = await checkHealth(true, attemptTimeoutMs, options?.signal);
+      if (health && health.status === "ok") {
+        return { health, elapsedMs: Date.now() - startedAt, attempts: attempt };
+      }
+      lastError = new Error("Backend returned unexpected health state");
+    } catch (err) {
+      if (options?.signal?.aborted) {
+        throw new Error("Wake-up check cancelled");
+      }
+      lastError = err instanceof Error ? err : new Error("Backend did not respond");
+    }
+
+    if (Date.now() - startedAt >= maxWaitMs) {
+      throw lastError || new Error("Free-tier backend did not respond in time");
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const waitTimer = window.setTimeout(() => {
+        options?.signal?.removeEventListener("abort", onAbort);
+        resolve();
+      }, retryDelayMs);
+      const onAbort = () => {
+        window.clearTimeout(waitTimer);
+        reject(new Error("Wake-up check cancelled"));
+      };
+      options?.signal?.addEventListener("abort", onAbort, { once: true });
+    });
+  }
 }
 
 export async function listJobs(limit = 20, offset = 0): Promise<JobSummary[]> {
