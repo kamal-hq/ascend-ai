@@ -36,14 +36,32 @@ function parseMatchPct(item: RagScholarshipMatch): number {
 export function OverviewView({
   profile,
   matches,
+  checkedSteps: externalChecked,
+  isArchived = false,
+  onToggleStep,
   onNavigate,
 }: {
   profile: ProfileResult;
   matches: RagScholarshipMatch[];
-  onNavigate: (tab: "study" | "career" | "local") => void;
+  checkedSteps?: number[];
+  isArchived?: boolean;
+  onToggleStep?: (index: number) => void;
+  onNavigate: (tab: "tracker" | "study" | "career" | "local") => void;
 }) {
-  const [checkedSteps, setCheckedSteps] = useState<Record<number, boolean>>({});
+  const [localChecked, setLocalChecked] = useState<Record<number, boolean>>({});
   const [exporting, setExporting] = useState(false);
+
+  const isStepChecked = (idx: number): boolean =>
+    externalChecked ? externalChecked.includes(idx) : Boolean(localChecked[idx]);
+
+  const toggleStep = (idx: number) => {
+    if (isArchived) return;
+    if (onToggleStep) {
+      onToggleStep(idx);
+    } else {
+      setLocalChecked((prev) => ({ ...prev, [idx]: !prev[idx] }));
+    }
+  };
 
   const score = profile.profile_strength_score ?? 50;
   const strengthLabel = deriveStrengthLabel(score, profile.strength_label);
@@ -72,7 +90,7 @@ export function OverviewView({
           detail: text,
         }));
 
-  const completedCount = roadmapList.filter((_, idx) => Boolean(checkedSteps[idx])).length;
+  const completedCount = roadmapList.filter((_, idx) => isStepChecked(idx)).length;
 
   const handleExportReport = async () => {
     setExporting(true);
@@ -209,24 +227,26 @@ export function OverviewView({
             </b>
           </div>
           <div className="roadmap-list">
-            {roadmapList.map((step, index) => (
-              <button
-                type="button"
-                key={`${step.title}-${index}`}
-                onClick={() =>
-                  setCheckedSteps((prev) => ({ ...prev, [index]: !prev[index] }))
-                }
-              >
-                <i className={checkedSteps[index] ? "checked" : ""}>
-                  {checkedSteps[index] && <Icon name="check" size={14} />}
-                </i>
-                <span>
-                  <small>{step.timeframe}</small>
-                  <strong>{step.title}</strong>
-                  <p>{step.detail}</p>
-                </span>
-              </button>
-            ))}
+            {roadmapList.map((step, index) => {
+              const checked = isStepChecked(index);
+              return (
+                <button
+                  type="button"
+                  key={`${step.title}-${index}`}
+                  disabled={isArchived}
+                  onClick={() => toggleStep(index)}
+                >
+                  <i className={checked ? "checked" : ""}>
+                    {checked && <Icon name="check" size={14} />}
+                  </i>
+                  <span>
+                    <small>{step.timeframe}</small>
+                    <strong>{step.title}</strong>
+                    <p>{step.detail}</p>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </section>
       </div>
@@ -238,9 +258,14 @@ export function OverviewView({
             <h2>Top scholarship matches</h2>
             <p>Ranked from 370+ curated international opportunities using field alignment, GPA fit, and funding scope.</p>
           </div>
-          <button type="button" onClick={() => onNavigate("study")}>
-            Open capability studio <Icon name="arrow" size={16} />
-          </button>
+          <div className="matches-actions">
+            <button type="button" onClick={() => onNavigate("tracker")}>
+              Open full 371 tracker <Icon name="calendar" size={15} />
+            </button>
+            <button type="button" onClick={() => onNavigate("study")}>
+              Open capability studio <Icon name="arrow" size={16} />
+            </button>
+          </div>
         </div>
 
         <div className="scholarship-list">

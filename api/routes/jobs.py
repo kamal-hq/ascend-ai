@@ -14,6 +14,7 @@ from typing import Any, Literal
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from agents.rag_matcher import query_scholarships_structured
 from api.demo import get_client_id, seed_demo_for_client
 from config import ALLOWED_CAPABILITIES
 from data.db import (
@@ -28,6 +29,7 @@ from data.db import (
     list_jobs,
     restore_job_snapshot,
     save_capability_state,
+    save_result,
     update_job_status,
 )
 from worker.queue import enqueue_capability, enqueue_eager
@@ -135,6 +137,34 @@ class JobsRestoreRequest(BaseModel):
     jobs: list[JobRestoreItem] = Field(default_factory=list, max_length=30)
 
 
+class TrackerScholarshipEntry(BaseModel):
+    status: Literal[
+        "not_started",
+        "shortlisted",
+        "working",
+        "applied",
+        "awarded",
+        "skipped",
+    ] = "not_started"
+    comment: str = Field(default="", max_length=1500)
+    updated_at: str = ""
+
+
+class TrackerTaskItem(BaseModel):
+    id: str
+    title: str = Field(..., min_length=1, max_length=240)
+    timeframe: str = Field(default="", max_length=80)
+    scholarship_name: str = Field(default="", max_length=160)
+    done: bool = False
+    created_at: str = ""
+
+
+class TrackerPayload(BaseModel):
+    scholarships: dict[str, TrackerScholarshipEntry] = Field(default_factory=dict)
+    tasks: list[TrackerTaskItem] = Field(default_factory=list, max_length=200)
+    roadmap_checked: list[int] = Field(default_factory=list, max_length=50)
+
+
 # ---------------------------------------------------------------------------
 # POST /jobs — create job + enqueue eager phase
 # ---------------------------------------------------------------------------
@@ -148,10 +178,19 @@ def create_job_endpoint(
     req: JobCreateRequest,
     client_id: str = Depends(get_client_id),
 ):
+    prev_tracker_payload: dict | None = None
     if req.thread_id:
         revs = get_thread_revisions(req.thread_id, client_id)
         if not revs:
             raise HTTPException(status_code=404, detail="Analysis thread not found")
+        source_rev = None
+        if req.base_version is not None:
+            source_rev = next((r for r in revs if int(r.get("version") or 1) == req.base_version), None)
+        if source_rev is None:
+            source_rev = revs[-1]
+        prev_tracker = get_result(source_rev["id"], "tracker")
+        if prev_tracker and isinstance(prev_tracker.get("payload"), dict):
+            prev_tracker_payload = prev_tracker["payload"]
 
     job_id = create_job(
         input_preview=req.input_text,
@@ -159,6 +198,8 @@ def create_job_endpoint(
         thread_id=req.thread_id,
         source_text=req.input_text,
     )
+    if prev_tracker_payload:
+        save_result(job_id, "tracker", prev_tracker_payload)
     update_job_status(job_id, "running")
 
     input_data: dict[str, Any] = {"input_text": req.input_text}
@@ -405,3 +446,55 @@ def enqueue_capability_endpoint(
         capability=capability_name,
         status="queued",
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /jobs/{job_id}/scholarships & PUT /jobs/{job_id}/tracker
+# ---------------------------------------------------------------------------
+@router.get(
+    "/{job_id}/scholarships",
+    summary="Rank all curated scholarships for this profile (spreadsheet & calendar view)",
+)
+def list_ranked_scholarships_endpoint(
+    job_id: str,
+    client_id: str = Depends(get_client_id),
+):
+    job = get_job(job_id, client_id=client_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    profile_row = get_result(job_id, "profile")
+    profile = (profile_row or {}).get("payload") or {}
+    matches = query_scholarships_structured(profile if isinstance(profile, dict) else {}, n_results=500)
+    return {
+        "job_id": job_id,
+        "total": len(matches),
+        "scholarships": matches,
+    }
+
+
+@router.put(
+    "/{job_id}/tracker",
+    summary="Save scholarship application statuses, comments, and open tasks",
+)
+def save_tracker_endpoint(
+    job_id: str,
+    req: TrackerPayload,
+    client_id: str = Depends(get_client_id),
+):
+    job = get_job(job_id, client_id=client_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    thread_id = job.get("thread_id") or job_id
+    revs = get_thread_revisions(thread_id, client_id)
+    max_ver = max((int(r.get("version") or 1) for r in revs), default=1)
+    if int(job.get("version") or 1) < max_ver:
+        raise HTTPException(
+            status_code=409,
+            detail="Archived revision is read-only. Switch to Latest to update tracker.",
+        )
+
+    payload = req.model_dump()
+    save_result(job_id, "tracker", payload)
+    return {"saved": True, "tracker": payload}

@@ -6,8 +6,10 @@ import {
   deleteJob,
   deleteThread,
   getJob,
+  getJobScholarships,
   listJobs,
   restoreJobs,
+  saveJobTracker,
   seedDemoJob,
   subscribeCapabilityStream,
   subscribeJobStream,
@@ -26,6 +28,7 @@ import {
   SystemBootOverlay,
   type BootCheckState,
 } from "@/components/SystemBootOverlay";
+import { TrackerView } from "@/components/TrackerView";
 import {
   clearAllLocalSnapshots,
   deleteLocalThread,
@@ -48,12 +51,15 @@ import type {
   JobRevisionInfo,
   JobStatusResponse,
   JobSummary,
+  RagScholarshipMatch,
+  TrackerState,
 } from "@/types/api";
 
-type WorkspaceTab = "overview" | "study" | "career" | "local";
+type WorkspaceTab = "overview" | "tracker" | "study" | "career" | "local";
 
 const TABS: readonly [WorkspaceTab, string, IconName][] = [
   ["overview", "Overview", "grid"],
+  ["tracker", "Tracker & calendar", "calendar"],
   ["study", "Study abroad & research", "book"],
   ["career", "Career & freelance", "briefcase"],
   ["local", "Local ecosystem", "globe"],
@@ -79,6 +85,7 @@ export default function App() {
   const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
   const [privacyOpen, setPrivacyOpen] = useState(false);
   const [reanalyzeOpen, setReanalyzeOpen] = useState(false);
+  const [trackerSaveStatus, setTrackerSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [reanalyzeProgress, setReanalyzeProgress] = useState<EagerProgressState>({
     active: false,
     jobId: null,
@@ -116,6 +123,9 @@ export default function App() {
   const bootAbortRef = useRef<AbortController | null>(null);
   const bootAutoCloseRef = useRef<number | null>(null);
   const activeJobIdRef = useRef<string | null>(null);
+  const catalogCacheRef = useRef<Record<string, RagScholarshipMatch[]>>({});
+  const trackerRef = useRef<Record<string, TrackerState>>({});
+  const trackerSaveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     activeJobIdRef.current = activeJob?.job_id ?? null;
@@ -139,7 +149,7 @@ export default function App() {
   }, []);
 
   const loadJob = useCallback(
-    async (jobId: string) => {
+    async (jobId: string, keepTab = false) => {
       clearStreams();
       const localMap = loadLocalSnapshots();
       let snap: JobStatusResponse;
@@ -151,19 +161,25 @@ export default function App() {
         try {
           const restored = await restoreJobs([fallback]);
           const mappedId = restored[0]?.job_id || jobId;
-          if (mappedId !== jobId) remapLocalJobId(jobId, mappedId);
+          if (mappedId !== jobId) remapLocalJobId(jobId, mappedId, restored[0]?.thread_id);
           snap = await getJob(mappedId);
         } catch {
           snap = fallback;
         }
       }
+      if (snap.results.tracker) {
+        trackerRef.current[snap.job_id] = snap.results.tracker;
+      }
       saveLocalSnapshot(snap);
       setActiveJob(snap);
+      setTrackerSaveStatus("idle");
       setCapLiveStates({});
       setModalCap(null);
       if (snap.results.profile) {
         setIntakeMode(false);
-        setTab("overview");
+        if (!keepTab) {
+          setTab("overview");
+        }
       }
       setSidebarOpen(false);
     },
@@ -343,6 +359,9 @@ export default function App() {
       bootAbortRef.current?.abort();
       if (bootAutoCloseRef.current !== null) {
         window.clearTimeout(bootAutoCloseRef.current);
+      }
+      if (trackerSaveTimerRef.current !== null) {
+        window.clearTimeout(trackerSaveTimerRef.current);
       }
       window.clearInterval(timer);
       clearStreams();
@@ -673,8 +692,15 @@ export default function App() {
 
   const handleClearAllLocal = async () => {
     clearStreams();
+    if (trackerSaveTimerRef.current !== null) {
+      window.clearTimeout(trackerSaveTimerRef.current);
+      trackerSaveTimerRef.current = null;
+    }
     const existingIds = sessions.map((s) => s.job_id);
     clearAllLocalSnapshots();
+    trackerRef.current = {};
+    catalogCacheRef.current = {};
+    setTrackerSaveStatus("idle");
     setSessions([]);
     setActiveJob(null);
     setIntakeMode(true);
@@ -682,6 +708,97 @@ export default function App() {
     window.setTimeout(() => setWorkspaceNotice(null), 2600);
     await Promise.allSettled(existingIds.map((id) => deleteJob(id)));
   };
+
+  const handleLoadCatalog = useCallback(async (jobId: string): Promise<RagScholarshipMatch[]> => {
+    if (catalogCacheRef.current[jobId]?.length) {
+      return catalogCacheRef.current[jobId];
+    }
+    try {
+      const items = await getJobScholarships(jobId);
+      catalogCacheRef.current[jobId] = items;
+      return items;
+    } catch (err) {
+      const isMissing = err instanceof ApiError && err.status === 404;
+      const fallback = loadLocalSnapshots()[jobId];
+      if (!isMissing || !fallback) throw err;
+      const remapped = await restoreJobs([fallback]);
+      const mappedId = remapped[0]?.job_id || jobId;
+      if (mappedId !== jobId) {
+        remapLocalJobId(jobId, mappedId, remapped[0]?.thread_id);
+      }
+      const items = await getJobScholarships(mappedId);
+      catalogCacheRef.current[jobId] = items;
+      catalogCacheRef.current[mappedId] = items;
+      return items;
+    }
+  }, []);
+
+  const handleUpdateTracker = useCallback(
+    (updater: (prev: TrackerState) => TrackerState) => {
+      if (!activeJob) return;
+      const jobId = activeJob.job_id;
+      const base: TrackerState = trackerRef.current[jobId] ||
+        activeJob.results?.tracker || {
+          scholarships: {},
+          tasks: [],
+          roadmap_checked: [],
+        };
+      const next = updater(base);
+      trackerRef.current[jobId] = next;
+
+      const updatedJob: JobStatusResponse = {
+        ...activeJob,
+        updated_at: new Date().toISOString(),
+        results: {
+          ...activeJob.results,
+          tracker: next,
+        },
+      };
+      saveLocalSnapshot(updatedJob);
+      setActiveJob(updatedJob);
+      setTrackerSaveStatus("saving");
+
+      if (trackerSaveTimerRef.current !== null) {
+        window.clearTimeout(trackerSaveTimerRef.current);
+      }
+      trackerSaveTimerRef.current = window.setTimeout(async () => {
+        try {
+          await saveJobTracker(jobId, next);
+          setTrackerSaveStatus("saved");
+        } catch (err) {
+          const isMissing = err instanceof ApiError && err.status === 404;
+          if (isMissing) {
+            try {
+              const remapped = await restoreJobs([updatedJob]);
+              const mappedId = remapped[0]?.job_id || jobId;
+              await saveJobTracker(mappedId, next);
+              setTrackerSaveStatus("saved");
+              return;
+            } catch {
+              // ignore retry failure
+            }
+          }
+          setTrackerSaveStatus("error");
+        }
+      }, 420);
+    },
+    [activeJob],
+  );
+
+  const toggleRoadmapStepSynced = useCallback(
+    (index: number) => {
+      handleUpdateTracker((prev) => {
+        const exists = prev.roadmap_checked.includes(index);
+        return {
+          ...prev,
+          roadmap_checked: exists
+            ? prev.roadmap_checked.filter((i) => i !== index)
+            : [...prev.roadmap_checked, index],
+        };
+      });
+    },
+    [handleUpdateTracker],
+  );
 
   const navigate = (next: WorkspaceTab) => {
     setTab(next);
@@ -831,7 +948,7 @@ export default function App() {
                   type="button"
                   className="rev-step-btn"
                   disabled={!prevRevision}
-                  onClick={() => prevRevision && void loadJob(prevRevision.job_id)}
+                  onClick={() => prevRevision && void loadJob(prevRevision.job_id, true)}
                   title="View previous analysis"
                 >
                   ← Prev
@@ -847,7 +964,7 @@ export default function App() {
                           key={rev.job_id}
                           type="button"
                           className={`rev-pill ${active ? "active" : ""}`}
-                          onClick={() => !active && void loadJob(rev.job_id)}
+                          onClick={() => !active && void loadJob(rev.job_id, true)}
                           title={`${rev.student_name || "Analysis"} · Score ${rev.score ?? "—"}`}
                         >
                           v{rev.version}
@@ -865,7 +982,7 @@ export default function App() {
                   type="button"
                   className="rev-step-btn"
                   disabled={!nextRevision}
-                  onClick={() => nextRevision && void loadJob(nextRevision.job_id)}
+                  onClick={() => nextRevision && void loadJob(nextRevision.job_id, true)}
                   title="View next analysis"
                 >
                   Next →
@@ -909,7 +1026,7 @@ export default function App() {
                   <button
                     type="button"
                     className="boot-primary"
-                    onClick={() => void loadJob(latestRevision.job_id)}
+                    onClick={() => void loadJob(latestRevision.job_id, true)}
                   >
                     Jump to Latest (v{latestVersion})
                   </button>
@@ -929,7 +1046,22 @@ export default function App() {
           <OverviewView
             profile={profile}
             matches={ragMatches}
+            checkedSteps={
+              trackerRef.current[activeJob.job_id]?.roadmap_checked ||
+              activeJob.results.tracker?.roadmap_checked ||
+              []
+            }
+            isArchived={!isLatest}
+            onToggleStep={toggleRoadmapStepSynced}
             onNavigate={(target) => navigate(target)}
+          />
+        ) : tab === "tracker" ? (
+          <TrackerView
+            job={activeJob}
+            isArchived={!isLatest}
+            saveStatus={trackerSaveStatus}
+            onLoadCatalog={handleLoadCatalog}
+            onUpdateTracker={handleUpdateTracker}
           />
         ) : (
           <StudioView

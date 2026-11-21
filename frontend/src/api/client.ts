@@ -5,6 +5,9 @@ import type {
   HealthResponse,
   JobStatusResponse,
   JobSummary,
+  RagScholarshipMatch,
+  RankedScholarshipsResponse,
+  TrackerState,
 } from "@/types/api";
 
 export const API_BASE =
@@ -150,6 +153,28 @@ export function seedDemoJob(): Promise<{ seeded: boolean; job_id: string | null 
 
 export function getJob(jobId: string): Promise<JobStatusResponse> {
   return apiJson<JobStatusResponse>(`/jobs/${encodeURIComponent(jobId)}`);
+}
+
+export async function getJobScholarships(jobId: string): Promise<RagScholarshipMatch[]> {
+  const res = await apiJson<RankedScholarshipsResponse>(
+    `/jobs/${encodeURIComponent(jobId)}/scholarships`,
+  );
+  return res.scholarships || [];
+}
+
+export async function saveJobTracker(
+  jobId: string,
+  tracker: TrackerState,
+): Promise<TrackerState> {
+  const res = await apiJson<{ saved: boolean; tracker: TrackerState }>(
+    `/jobs/${encodeURIComponent(jobId)}/tracker`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(tracker),
+    },
+  );
+  return res.tracker;
 }
 
 export function createJob(

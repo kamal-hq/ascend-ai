@@ -58,11 +58,48 @@ export interface RagScholarshipMatch {
   fields: string;
   gpa_min: string;
   deadline_month: string;
+  deadline_month_num?: number;
+  deadline_bucket?: string;
   bond: string;
   url: string;
   note: string;
   match_score?: number;
   similarity_match?: string;
+}
+
+export type ScholarshipTrackerStatus =
+  | "not_started"
+  | "shortlisted"
+  | "working"
+  | "applied"
+  | "awarded"
+  | "skipped";
+
+export interface TrackerScholarshipEntry {
+  status: ScholarshipTrackerStatus;
+  comment: string;
+  updated_at?: string;
+}
+
+export interface TrackerTaskItem {
+  id: string;
+  title: string;
+  timeframe: string;
+  scholarship_name: string;
+  done: boolean;
+  created_at?: string;
+}
+
+export interface TrackerState {
+  scholarships: Record<string, TrackerScholarshipEntry>;
+  tasks: TrackerTaskItem[];
+  roadmap_checked: number[];
+}
+
+export interface RankedScholarshipsResponse {
+  job_id: string;
+  total: number;
+  scholarships: RagScholarshipMatch[];
 }
 
 export interface ContextResult {
@@ -325,6 +362,7 @@ export interface JobStatusResponse {
     freelance_pack?: FreelancePackResult;
     academia_vs_industry?: AcademiaVsIndustryResult;
     local_ecosystem?: LocalEcosystemResult;
+    tracker?: TrackerState;
     [key: string]: unknown;
   };
   capability_states: Record<string, CapabilityStateInfo>;
