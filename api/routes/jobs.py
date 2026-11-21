@@ -20,9 +20,11 @@ from data.db import (
     count_jobs,
     create_job,
     delete_job,
+    delete_thread,
     get_job,
     get_result,
     get_results,
+    get_thread_revisions,
     list_jobs,
     restore_job_snapshot,
     save_capability_state,
@@ -45,6 +47,8 @@ class JobCreateRequest(BaseModel):
         min_length=1,
         description="Raw student notes, parsed CV text, or scraped LinkedIn text.",
     )
+    thread_id: str | None = None
+    base_version: int | None = Field(default=None, ge=1)
 
 
 class JobCreateResponse(BaseModel):
@@ -58,14 +62,27 @@ class CapabilityStateInfo(BaseModel):
     completed_at: str
 
 
+class JobRevisionInfo(BaseModel):
+    job_id: str
+    version: int
+    score: int | None = None
+    student_name: str = ""
+    target_program: str = ""
+    created_at: str
+
+
 class JobStatusResponse(BaseModel):
     job_id: str
+    thread_id: str = ""
+    version: int = 1
+    source_text: str = ""
     status: str
     student_name: str = ""
     target_program: str = ""
     score: int | None = None
     created_at: str
     updated_at: str
+    revisions: list[JobRevisionInfo] = Field(default_factory=list)
     results: dict[str, Any]
     capability_states: dict[str, CapabilityStateInfo]
 
@@ -83,6 +100,8 @@ class CapabilityEnqueueResponse(BaseModel):
 
 class JobSummary(BaseModel):
     job_id: str
+    thread_id: str = ""
+    version: int = 1
     status: str
     student_name: str = ""
     target_program: str = ""
@@ -100,6 +119,9 @@ class JobListResponse(BaseModel):
 
 class JobRestoreItem(BaseModel):
     job_id: str = ""
+    thread_id: str = ""
+    version: int = 1
+    source_text: str = ""
     student_name: str = ""
     target_program: str = ""
     score: int | None = None
@@ -126,10 +148,22 @@ def create_job_endpoint(
     req: JobCreateRequest,
     client_id: str = Depends(get_client_id),
 ):
-    job_id = create_job(input_preview=req.input_text, client_id=client_id)
+    if req.thread_id:
+        revs = get_thread_revisions(req.thread_id, client_id)
+        if not revs:
+            raise HTTPException(status_code=404, detail="Analysis thread not found")
+
+    job_id = create_job(
+        input_preview=req.input_text,
+        client_id=client_id,
+        thread_id=req.thread_id,
+        source_text=req.input_text,
+    )
     update_job_status(job_id, "running")
 
-    input_data = {"input_text": req.input_text}
+    input_data: dict[str, Any] = {"input_text": req.input_text}
+    if req.thread_id and req.base_version is not None:
+        input_data["base_version"] = int(req.base_version)
 
     try:
         enqueue_eager(job_id, input_data)
@@ -154,9 +188,17 @@ def restore_jobs_endpoint(
     client_id: str = Depends(get_client_id),
 ):
     restored = []
+    thread_id_map: dict[str, str] = {}
     for item in req.jobs:
-        new_id = restore_job_snapshot(client_id, item.model_dump())
-        restored.append({"old_id": item.job_id, "job_id": new_id})
+        raw_tid = (item.thread_id or "").strip()
+        new_id, new_tid = restore_job_snapshot(
+            client_id,
+            item.model_dump(),
+            thread_id_override=thread_id_map.get(raw_tid) if raw_tid else None,
+        )
+        if raw_tid:
+            thread_id_map.setdefault(raw_tid, new_tid)
+        restored.append({"old_id": item.job_id, "job_id": new_id, "thread_id": new_tid})
     return {"restored": restored}
 
 
@@ -190,6 +232,8 @@ def list_jobs_endpoint(
     jobs = [
         JobSummary(
             job_id=r["id"],
+            thread_id=r.get("thread_id") or r["id"],
+            version=int(r.get("version") or 1),
             status=r["status"],
             student_name=r.get("student_name", "") or "",
             target_program=r.get("target_program", "") or "",
@@ -237,18 +281,50 @@ def get_job_endpoint(
     student_name = job.get("student_name") or profile_pl.get("name", "")
     target_program = job.get("target_program") or profile_pl.get("target_program", "")
     score = job.get("score") if job.get("score") is not None else profile_pl.get("profile_strength_score")
+    thread_id = job.get("thread_id") or job["id"]
+    rev_rows = get_thread_revisions(thread_id, client_id)
+    revisions = [
+        JobRevisionInfo(
+            job_id=rv["id"],
+            version=int(rv.get("version") or 1),
+            score=rv.get("score"),
+            student_name=rv.get("student_name", "") or "",
+            target_program=rv.get("target_program", "") or "",
+            created_at=rv["created_at"],
+        )
+        for rv in rev_rows
+    ]
 
     return JobStatusResponse(
         job_id=job["id"],
+        thread_id=thread_id,
+        version=int(job.get("version") or 1),
+        source_text=job.get("source_text", "") or job.get("input_preview", "") or "",
         status=job["status"],
         student_name=str(student_name or ""),
         target_program=str(target_program or ""),
         score=score,
         created_at=job["created_at"],
         updated_at=job["updated_at"],
+        revisions=revisions,
         results=results,
         capability_states=capability_states,
     )
+
+
+@router.delete(
+    "/thread/{thread_id}",
+    status_code=200,
+    summary="Delete every revision belonging to a person's analysis thread",
+)
+def delete_thread_endpoint(
+    thread_id: str,
+    client_id: str = Depends(get_client_id),
+):
+    deleted = delete_thread(thread_id, client_id=client_id)
+    if deleted == 0:
+        raise HTTPException(status_code=404, detail="Thread not found")
+    return {"deleted": deleted, "thread_id": thread_id}
 
 
 @router.delete(
@@ -289,6 +365,15 @@ def enqueue_capability_endpoint(
     job = get_job(job_id, client_id=client_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    thread_id = job.get("thread_id") or job_id
+    revs = get_thread_revisions(thread_id, client_id)
+    max_ver = max((int(r.get("version") or 1) for r in revs), default=1)
+    if int(job.get("version") or 1) < max_ver:
+        raise HTTPException(
+            status_code=409,
+            detail="Archived revision is read-only. Switch to Latest to run capabilities.",
+        )
 
     profile_result = get_result(job_id, "profile")
     if profile_result is None or profile_result.get("status") != "completed":

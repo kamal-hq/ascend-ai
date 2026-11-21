@@ -127,9 +127,11 @@ export async function listJobs(
 
 export async function restoreJobs(
   jobs: JobStatusResponse[],
-): Promise<Array<{ old_id: string; job_id: string }>> {
+): Promise<Array<{ old_id: string; job_id: string; thread_id?: string }>> {
   if (jobs.length === 0) return [];
-  const res = await apiJson<{ restored: Array<{ old_id: string; job_id: string }> }>(
+  const res = await apiJson<{
+    restored: Array<{ old_id: string; job_id: string; thread_id?: string }>;
+  }>(
     "/jobs/restore",
     {
       method: "POST",
@@ -150,12 +152,26 @@ export function getJob(jobId: string): Promise<JobStatusResponse> {
   return apiJson<JobStatusResponse>(`/jobs/${encodeURIComponent(jobId)}`);
 }
 
-export function createJob(inputText: string): Promise<{ job_id: string; status: string }> {
+export function createJob(
+  inputText: string,
+  options?: { thread_id?: string; base_version?: number },
+): Promise<{ job_id: string; status: string }> {
   return apiJson<{ job_id: string; status: string }>("/jobs", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ input_text: inputText }),
+    body: JSON.stringify({
+      input_text: inputText,
+      ...(options?.thread_id ? { thread_id: options.thread_id } : {}),
+      ...(options?.base_version !== undefined ? { base_version: options.base_version } : {}),
+    }),
   });
+}
+
+export function deleteThread(threadId: string): Promise<{ deleted: number; thread_id: string }> {
+  return apiJson<{ deleted: number; thread_id: string }>(
+    `/jobs/thread/${encodeURIComponent(threadId)}`,
+    { method: "DELETE" },
+  );
 }
 
 export function deleteJob(jobId: string): Promise<{ deleted: boolean; job_id: string }> {

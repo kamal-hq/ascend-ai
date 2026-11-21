@@ -118,12 +118,16 @@ export function StudioView({
   type,
   job,
   activeStates,
+  isArchived = false,
+  latestVersion = 1,
   onTrigger,
   onOpenResult,
 }: {
   type: "study" | "career" | "local";
   job: JobStatusResponse;
   activeStates: Record<string, { status: CapabilityStatus; error?: string }>;
+  isArchived?: boolean;
+  latestVersion?: number;
   onTrigger: (cap: CapabilityName, options?: { custom_notes?: string; sop_text?: string }) => void;
   onOpenResult: (cap: CapabilityName, title: string) => void;
 }) {
@@ -217,6 +221,8 @@ export function StudioView({
                   <button
                     type="button"
                     className="generate-button"
+                    disabled={isArchived}
+                    title={isArchived ? `Switch to Latest (v${latestVersion}) to retry` : undefined}
                     onClick={() =>
                       onTrigger(
                         card.id,
@@ -226,18 +232,20 @@ export function StudioView({
                       )
                     }
                   >
-                    <Icon name="refresh" size={15} /> Retry
+                    <Icon name="refresh" size={15} /> {isArchived ? "Latest only" : "Retry"}
                   </button>
                 </div>
               ) : (
                 <button
                   type="button"
                   className="generate-button"
-                  disabled={isReviewBlocked}
+                  disabled={isArchived || isReviewBlocked}
                   title={
-                    isReviewBlocked
-                      ? "Generate an SOP draft first or paste custom SOP text above"
-                      : undefined
+                    isArchived
+                      ? `Switch to Latest (v${latestVersion}) to generate new capabilities`
+                      : isReviewBlocked
+                        ? "Generate an SOP draft first or paste custom SOP text above"
+                        : undefined
                   }
                   onClick={() =>
                     onTrigger(
@@ -249,7 +257,11 @@ export function StudioView({
                   }
                 >
                   <Icon name="sparkle" size={16} />{" "}
-                  {isReviewBlocked ? "Draft or paste SOP first" : "Generate"}
+                  {isArchived
+                    ? `Latest only (v${latestVersion})`
+                    : isReviewBlocked
+                      ? "Draft or paste SOP first"
+                      : "Generate"}
                 </button>
               )}
             </article>

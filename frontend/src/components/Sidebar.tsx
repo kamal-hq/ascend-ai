@@ -27,6 +27,7 @@ export function Sidebar({
   onNew,
   sessions,
   activeJobId,
+  activeThreadId,
   onSelectSession,
   onDeleteSession,
   liveRate,
@@ -46,8 +47,9 @@ export function Sidebar({
   onNew: () => void;
   sessions: JobSummary[];
   activeJobId: string | null;
+  activeThreadId: string | null;
   onSelectSession: (jobId: string) => void;
-  onDeleteSession: (jobId: string) => void;
+  onDeleteSession: (threadId: string, fallbackJobId: string) => void;
   liveRate: number;
   health: HealthResponse | null;
   clientId: string;
@@ -61,7 +63,27 @@ export function Sidebar({
   onToggleShowAll: () => void;
 }) {
   const importInputRef = useRef<HTMLInputElement>(null);
-  const visibleSessions = showAllHistory ? sessions : sessions.slice(0, 5);
+
+  // Group versions by person thread so sidebar shows 1 row per workspace thread (latest version)
+  const groupedThreads = Array.from(
+    sessions.reduce((map, s) => {
+      const tid = s.thread_id || s.job_id;
+      const prev = map.get(tid);
+      const curVer = s.version ?? 1;
+      const prevVer = prev?.latest.version ?? 0;
+      if (!prev) {
+        map.set(tid, { latest: s, count: 1 });
+      } else {
+        const pickLatest =
+          curVer > prevVer ||
+          (curVer === prevVer && Date.parse(s.created_at) > Date.parse(prev.latest.created_at));
+        map.set(tid, { latest: pickLatest ? s : prev.latest, count: prev.count + 1 });
+      }
+      return map;
+    }, new Map<string, { latest: JobSummary; count: number }>()).values(),
+  ).sort((a, b) => Date.parse(b.latest.created_at) - Date.parse(a.latest.created_at));
+
+  const visibleSessions = showAllHistory ? groupedThreads : groupedThreads.slice(0, 5);
   const apiOnline = Boolean(health && health.status === "ok");
   const statusLabel = !apiOnline
     ? "API offline"
@@ -95,7 +117,7 @@ export function Sidebar({
 
         <div className="history-heading">
           <span>Recent analyses</span>
-          {sessions.length > 5 && (
+          {groupedThreads.length > 5 && (
             <button onClick={onToggleShowAll}>
               {showAllHistory ? "Show less" : "View all"}
             </button>
@@ -111,14 +133,17 @@ export function Sidebar({
               </button>
             </div>
           ) : (
-            visibleSessions.map((session) => {
+            visibleSessions.map(({ latest: session, count }) => {
               const displayName =
                 session.student_name ||
                 (session.status === "failed" ? "Failed analysis" : "Pending profile");
-              const programText = session.target_program || session.status;
-              const isActive = session.job_id === activeJobId;
+              const ver = session.version ?? 1;
+              const verTag = count > 1 || ver > 1 ? ` · v${ver}` : "";
+              const programText = `${session.target_program || session.status}${verTag}`;
+              const tid = session.thread_id || session.job_id;
+              const isActive = (activeThreadId && tid === activeThreadId) || session.job_id === activeJobId;
               return (
-                <div className={`session-row ${isActive ? "active" : ""}`} key={session.job_id}>
+                <div className={`session-row ${isActive ? "active" : ""}`} key={tid}>
                   <button
                     type="button"
                     className="session"
@@ -142,11 +167,11 @@ export function Sidebar({
                   <button
                     type="button"
                     className="session-delete"
-                    title="Delete saved session"
+                    title="Delete saved profile & all its revisions"
                     aria-label={`Delete ${displayName}`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      onDeleteSession(session.job_id);
+                      onDeleteSession(tid, session.job_id);
                     }}
                   >
                     <Icon name="x" size={13} />

@@ -276,8 +276,19 @@ export interface CapabilityStateInfo {
   completed_at: string;
 }
 
+export interface JobRevisionInfo {
+  job_id: string;
+  version: number;
+  score: number | null;
+  student_name: string;
+  target_program: string;
+  created_at: string;
+}
+
 export interface JobSummary {
   job_id: string;
+  thread_id?: string;
+  version?: number;
   status: "pending" | "running" | "completed" | "failed";
   student_name: string;
   target_program: string;
@@ -289,12 +300,16 @@ export interface JobSummary {
 
 export interface JobStatusResponse {
   job_id: string;
+  thread_id?: string;
+  version?: number;
+  source_text?: string;
   status: "pending" | "running" | "completed" | "failed";
   student_name: string;
   target_program: string;
   score: number | null;
   created_at: string;
   updated_at: string;
+  revisions?: JobRevisionInfo[];
   results: {
     context?: ContextResult;
     profile?: ProfileResult;

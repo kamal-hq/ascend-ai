@@ -15,7 +15,13 @@ import requests
 from agents.common.cache import result_cache
 from agents.profile_agent import extract_profile
 from agents.rag_matcher import query_scholarships_structured
-from data.db import save_result, update_job_meta, update_job_status
+from data.db import (
+    get_job,
+    prune_and_promote_revision,
+    save_result,
+    update_job_meta,
+    update_job_status,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +74,18 @@ def run_eager_job(job_id: str, input_data: dict) -> None:
         matches = query_scholarships_structured(profile_data, n_results=5)
         save_result(job_id, "rag_matches", {"matches": matches})
         logger.info("[%s] RAG matches saved (%d matches)", job_id[:8], len(matches))
+
+        # 4. If branching re-analysis from an older version, prune superseded versions cleanly
+        base_version = input_data.get("base_version")
+        if base_version is not None:
+            job_row = get_job(job_id)
+            if job_row and job_row.get("thread_id"):
+                prune_and_promote_revision(
+                    job_id,
+                    job_row["client_id"],
+                    job_row["thread_id"],
+                    int(base_version),
+                )
 
         update_job_status(job_id, "completed")
 

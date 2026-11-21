@@ -31,6 +31,9 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
     id              TEXT PRIMARY KEY,
     client_id       TEXT NOT NULL DEFAULT 'default',
+    thread_id       TEXT NOT NULL DEFAULT '',
+    version         INTEGER NOT NULL DEFAULT 1,
+    source_text     TEXT NOT NULL DEFAULT '',
     status          TEXT NOT NULL DEFAULT 'pending'
                         CHECK (status IN ('pending', 'running', 'completed', 'failed')),
     input_preview   TEXT NOT NULL DEFAULT '',
@@ -72,13 +75,18 @@ def init_db() -> None:
     with _connect() as conn:
         conn.executescript(_SCHEMA)
         _ensure_column(conn, "jobs", "client_id", "TEXT NOT NULL DEFAULT 'default'")
+        _ensure_column(conn, "jobs", "thread_id", "TEXT NOT NULL DEFAULT ''")
+        _ensure_column(conn, "jobs", "version", "INTEGER NOT NULL DEFAULT 1")
+        _ensure_column(conn, "jobs", "source_text", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(conn, "jobs", "input_preview", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(conn, "jobs", "student_name", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(conn, "jobs", "target_program", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(conn, "jobs", "score", "INTEGER")
         _ensure_column(conn, "results", "status", "TEXT NOT NULL DEFAULT 'completed'")
         _ensure_column(conn, "results", "error_message", "TEXT")
+        conn.execute("UPDATE jobs SET thread_id = id WHERE thread_id = '' OR thread_id IS NULL")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_client_id ON jobs(client_id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_thread_id ON jobs(thread_id)")
 
 
 def _now() -> str:
@@ -89,19 +97,41 @@ def _now() -> str:
 # Job operations
 # ---------------------------------------------------------------------------
 
-def create_job(input_preview: str = "", client_id: str = "default") -> str:
+def create_job(
+    input_preview: str = "",
+    client_id: str = "default",
+    *,
+    thread_id: str | None = None,
+    version: int | None = None,
+    source_text: str = "",
+) -> str:
     """Insert a new pending job owned by *client_id* and return its UUID."""
     job_id = uuid.uuid4().hex
     now = _now()
-    preview = str(input_preview or "").strip()[:180]
+    full_source = str(source_text or input_preview or "").strip()[:12000]
+    preview = str(input_preview or full_source).strip()[:180]
     cid = str(client_id or "default").strip() or "default"
+    tid = str(thread_id or "").strip() or job_id
+
     with _connect() as conn:
+        if version is None:
+            if thread_id:
+                row = conn.execute(
+                    "SELECT COALESCE(MAX(version), 0) AS max_v FROM jobs WHERE client_id = ? AND thread_id = ?",
+                    (cid, tid),
+                ).fetchone()
+                ver = int(row["max_v"]) + 1 if row else 1
+            else:
+                ver = 1
+        else:
+            ver = max(1, int(version))
+
         conn.execute(
             """
-            INSERT INTO jobs (id, client_id, status, input_preview, created_at, updated_at)
-            VALUES (?, ?, 'pending', ?, ?, ?)
+            INSERT INTO jobs (id, client_id, thread_id, version, source_text, status, input_preview, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)
             """,
-            (job_id, cid, preview, now, now),
+            (job_id, cid, tid, ver, full_source, preview, now, now),
         )
     return job_id
 
@@ -157,6 +187,52 @@ def delete_job(job_id: str, client_id: str | None = None) -> bool:
                 (job_id, client_id),
             )
         return cur.rowcount > 0
+
+
+def delete_thread(thread_id: str, client_id: str) -> int:
+    """Delete every revision belonging to *thread_id* under *client_id*."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "DELETE FROM jobs WHERE thread_id = ? AND client_id = ?",
+            (thread_id, client_id),
+        )
+        return int(cur.rowcount)
+
+
+def get_thread_revisions(thread_id: str, client_id: str) -> list[dict]:
+    """Return all completed revisions for *thread_id* ordered oldest to latest."""
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, thread_id, version, student_name, target_program, score, status, created_at, updated_at
+            FROM jobs
+            WHERE thread_id = ? AND client_id = ? AND status = 'completed'
+            ORDER BY version ASC, created_at ASC
+            """,
+            (thread_id, client_id),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def prune_and_promote_revision(
+    job_id: str,
+    client_id: str,
+    thread_id: str,
+    base_version: int,
+) -> None:
+    """Delete revisions newer than *base_version* and set *job_id* as the new latest."""
+    with _connect() as conn:
+        conn.execute(
+            """
+            DELETE FROM jobs
+            WHERE client_id = ? AND thread_id = ? AND version > ? AND id != ?
+            """,
+            (client_id, thread_id, base_version, job_id),
+        )
+        conn.execute(
+            "UPDATE jobs SET version = ?, updated_at = ? WHERE id = ?",
+            (base_version + 1, _now(), job_id),
+        )
 
 
 def list_jobs(
@@ -221,7 +297,12 @@ def count_jobs(client_id: str | None = None) -> int:
     return int(row["cnt"]) if row else 0
 
 
-def restore_job_snapshot(client_id: str, snapshot: dict) -> str:
+def restore_job_snapshot(
+    client_id: str,
+    snapshot: dict,
+    *,
+    thread_id_override: str | None = None,
+) -> tuple[str, str]:
     """Restore/append a browser-saved job snapshot into SQLite owned by *client_id*."""
     cid = str(client_id or "default").strip() or "default"
     raw_id = str(snapshot.get("job_id") or "").strip()
@@ -239,35 +320,49 @@ def restore_job_snapshot(client_id: str, snapshot: dict) -> str:
     if score is None:
         score = profile_pl.get("profile_strength_score")
     preview = str(snapshot.get("input_preview") or profile_pl.get("summary") or "")[:180]
+    source_text = str(snapshot.get("source_text") or preview)[:12000]
+    version = max(1, int(snapshot.get("version") or 1))
 
     with _connect() as conn:
         target_id = raw_id or uuid.uuid4().hex
-        existing = conn.execute("SELECT client_id FROM jobs WHERE id = ?", (target_id,)).fetchone()
+        existing = conn.execute("SELECT client_id, thread_id FROM jobs WHERE id = ?", (target_id,)).fetchone()
+        collided = False
         if existing is not None:
             if existing["client_id"] != cid:
                 # Collision with another visitor's row — preserve isolation with fresh ID
                 target_id = uuid.uuid4().hex
                 existing = None
+                collided = True
+
+        raw_tid = str(snapshot.get("thread_id") or "").strip()
+        if thread_id_override:
+            target_tid = thread_id_override
+        elif collided or not raw_tid or (raw_tid == raw_id and target_id != raw_id):
+            target_tid = target_id
+        else:
+            target_tid = raw_tid
 
         if existing is None:
             conn.execute(
                 """
-                INSERT INTO jobs (id, client_id, status, input_preview, student_name, target_program, score, created_at, updated_at)
-                VALUES (?, ?, 'completed', ?, ?, ?, ?, ?, ?)
+                INSERT INTO jobs (id, client_id, thread_id, version, source_text, status, input_preview, student_name, target_program, score, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?)
                 """,
-                (target_id, cid, preview, student_name, target_program, score, created_at, updated_at),
+                (target_id, cid, target_tid, version, source_text, preview, student_name, target_program, score, created_at, updated_at),
             )
         else:
+            target_tid = existing["thread_id"] or target_tid
             conn.execute(
                 """
                 UPDATE jobs
                 SET student_name = COALESCE(NULLIF(student_name, ''), ?),
                     target_program = COALESCE(NULLIF(target_program, ''), ?),
+                    source_text = COALESCE(NULLIF(source_text, ''), ?),
                     score = COALESCE(score, ?),
                     updated_at = ?
                 WHERE id = ?
                 """,
-                (student_name, target_program, score, updated_at, target_id),
+                (student_name, target_program, source_text, score, updated_at, target_id),
             )
 
         if isinstance(results, dict):
@@ -296,7 +391,7 @@ def restore_job_snapshot(client_id: str, snapshot: dict) -> str:
                     (target_id, str(cap_name), serialized, updated_at),
                 )
 
-    return target_id
+    return target_id, target_tid
 
 
 # ---------------------------------------------------------------------------

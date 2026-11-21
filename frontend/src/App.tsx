@@ -4,6 +4,7 @@ import {
   checkHealth,
   createJob,
   deleteJob,
+  deleteThread,
   getJob,
   listJobs,
   restoreJobs,
@@ -18,6 +19,7 @@ import { Icon, type IconName } from "@/components/Icon";
 import { IntakeView, type EagerProgressState } from "@/components/IntakeView";
 import { OverviewView } from "@/components/OverviewView";
 import { PrivacyModal } from "@/components/PrivacyModal";
+import { ReanalyzeModal } from "@/components/ReanalyzeModal";
 import { getInitials, Sidebar } from "@/components/Sidebar";
 import { CAPABILITY_GROUPS, StudioView } from "@/components/StudioView";
 import {
@@ -26,14 +28,16 @@ import {
 } from "@/components/SystemBootOverlay";
 import {
   clearAllLocalSnapshots,
-  deleteLocalSnapshot,
+  deleteLocalThread,
   exportWorkspaceFile,
   getClientId,
+  getLocalThreadRevisions,
   isDemoInitialized,
   listLocalSummaries,
   loadLocalSnapshots,
   markDemoInitialized,
   mergeImportedWorkspace,
+  pruneLocalThreadAfterVersion,
   remapLocalJobId,
   saveLocalSnapshot,
 } from "@/lib/workspaceStore";
@@ -41,6 +45,7 @@ import type {
   CapabilityName,
   CapabilityStatus,
   HealthResponse,
+  JobRevisionInfo,
   JobStatusResponse,
   JobSummary,
 } from "@/types/api";
@@ -73,6 +78,15 @@ export default function App() {
   const [activeJob, setActiveJob] = useState<JobStatusResponse | null>(null);
   const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
   const [privacyOpen, setPrivacyOpen] = useState(false);
+  const [reanalyzeOpen, setReanalyzeOpen] = useState(false);
+  const [reanalyzeProgress, setReanalyzeProgress] = useState<EagerProgressState>({
+    active: false,
+    jobId: null,
+    contextDone: false,
+    profileDone: false,
+    ragDone: false,
+    error: null,
+  });
   const clientId = getClientId();
   const [capLiveStates, setCapLiveStates] = useState<
     Record<string, { status: CapabilityStatus; error?: string }>
@@ -240,10 +254,13 @@ export default function App() {
 
         if (missingOnServer.length > 0) {
           try {
-            const remapped = await restoreJobs(missingOnServer);
+            const orderedMissing = [...missingOnServer].sort(
+              (a, b) => (a.version ?? 1) - (b.version ?? 1),
+            );
+            const remapped = await restoreJobs(orderedMissing);
             for (const item of remapped) {
-              if (item.old_id && item.job_id && item.old_id !== item.job_id) {
-                remapLocalJobId(item.old_id, item.job_id);
+              if (item.old_id && item.job_id && (item.old_id !== item.job_id || item.thread_id)) {
+                remapLocalJobId(item.old_id, item.job_id, item.thread_id);
                 if (activeJobIdRef.current === item.old_id) {
                   activeJobIdRef.current = item.job_id;
                 }
@@ -469,15 +486,20 @@ export default function App() {
     }
   };
 
-  const handleDeleteSession = async (jobId: string) => {
-    deleteLocalSnapshot(jobId);
+  const handleDeleteSession = async (threadId: string, fallbackJobId: string) => {
+    deleteLocalThread(threadId);
     try {
-      await deleteJob(jobId);
+      await deleteThread(threadId);
     } catch {
-      // ignore if already wiped on free server
+      try {
+        await deleteJob(fallbackJobId);
+      } catch {
+        // ignore if already wiped on free server
+      }
     }
     const updated = await refreshSessions();
-    if (activeJob?.job_id === jobId) {
+    const curTid = activeJob?.thread_id || activeJob?.job_id;
+    if (curTid === threadId || activeJob?.job_id === fallbackJobId) {
       const next = updated.find((r) => r.status === "completed");
       if (next) {
         await loadJob(next.job_id);
@@ -485,6 +507,115 @@ export default function App() {
         setActiveJob(null);
         setIntakeMode(true);
       }
+    }
+  };
+
+  const handleReanalyze = async (updatedText: string) => {
+    if (!activeJob) return;
+    clearStreams();
+    const baseThreadId = activeJob.thread_id || activeJob.job_id;
+    const baseVer = activeJob.version ?? 1;
+    const localRevsForThread = Object.values(loadLocalSnapshots()).filter(
+      (j) => (j.thread_id || j.job_id) === baseThreadId,
+    );
+    const revVersions = [
+      ...localRevsForThread.map((j) => j.version ?? 1),
+      ...(activeJob.revisions || []).map((r) => r.version),
+      baseVer,
+    ];
+    const highestVer = Math.max(...revVersions);
+    const baseVersionParam = baseVer < highestVer ? baseVer : undefined;
+
+    try {
+      let targetThreadId = baseThreadId;
+      let created: { job_id: string; status: string };
+      try {
+        created = await createJob(updatedText, {
+          thread_id: targetThreadId,
+          ...(baseVersionParam !== undefined ? { base_version: baseVersionParam } : {}),
+        });
+      } catch (err) {
+        const missingThread = err instanceof ApiError && err.status === 404;
+        if (!missingThread || localRevsForThread.length === 0) throw err;
+
+        const restored = await restoreJobs(
+          localRevsForThread.sort((a, b) => (a.version ?? 1) - (b.version ?? 1)),
+        );
+        for (const r of restored) {
+          if (r.old_id && r.job_id) {
+            remapLocalJobId(r.old_id, r.job_id, r.thread_id);
+          }
+        }
+        targetThreadId = restored[0]?.thread_id || targetThreadId;
+        created = await createJob(updatedText, {
+          thread_id: targetThreadId,
+          ...(baseVersionParam !== undefined ? { base_version: baseVersionParam } : {}),
+        });
+      }
+
+      const newJobId = created.job_id;
+      setReanalyzeProgress({
+        active: true,
+        jobId: newJobId,
+        contextDone: false,
+        profileDone: false,
+        ragDone: false,
+        error: null,
+      });
+
+      const stop = subscribeJobStream(newJobId, {
+        onSlice: (sliceName) => {
+          setReanalyzeProgress((prev) => ({
+            ...prev,
+            contextDone: prev.contextDone || sliceName === "context",
+            profileDone: prev.profileDone || sliceName === "profile",
+            ragDone: prev.ragDone || sliceName === "rag_matches",
+          }));
+        },
+        onStatus: async (status) => {
+          if (status === "completed") {
+            if (baseVersionParam !== undefined) {
+              pruneLocalThreadAfterVersion(targetThreadId, baseVersionParam, newJobId);
+            }
+            await refreshSessions();
+            await loadJob(newJobId);
+            setReanalyzeProgress({
+              active: false,
+              jobId: null,
+              contextDone: false,
+              profileDone: false,
+              ragDone: false,
+              error: null,
+            });
+            setReanalyzeOpen(false);
+          } else {
+            const snap = await getJob(newJobId).catch(() => null);
+            const errPayload = snap?.results?.eager_error as { error?: string } | undefined;
+            setReanalyzeProgress((prev) => ({
+              ...prev,
+              active: false,
+              error: errPayload?.error || "Re-analysis failed. Previous versions were preserved.",
+            }));
+          }
+        },
+        onError: (errMsg) => {
+          setReanalyzeProgress((prev) => ({
+            ...prev,
+            active: false,
+            error: errMsg,
+          }));
+        },
+      });
+      cleanupsRef.current.push(stop);
+    } catch (err) {
+      setReanalyzeProgress({
+        active: false,
+        jobId: null,
+        contextDone: false,
+        profileDone: false,
+        ragDone: false,
+        error: err instanceof Error ? err.message : "Failed to start re-analysis.",
+      });
     }
   };
 
@@ -506,10 +637,11 @@ export default function App() {
       }
       let targetId = imported[0].job_id;
       try {
-        const remapped = await restoreJobs(imported);
+        const orderedImport = [...imported].sort((a, b) => (a.version ?? 1) - (b.version ?? 1));
+        const remapped = await restoreJobs(orderedImport);
         for (const item of remapped) {
-          if (item.old_id && item.job_id && item.old_id !== item.job_id) {
-            remapLocalJobId(item.old_id, item.job_id);
+          if (item.old_id && item.job_id && (item.old_id !== item.job_id || item.thread_id)) {
+            remapLocalJobId(item.old_id, item.job_id, item.thread_id);
             if (item.old_id === targetId) targetId = item.job_id;
           }
         }
@@ -562,6 +694,27 @@ export default function App() {
   const ragMatches = activeJob?.results?.rag_matches?.matches || [];
   const liveRate = activeJob?.results?.context?.live_rate || 278.5;
 
+  const activeThreadId = activeJob?.thread_id || activeJob?.job_id || "";
+  const localRevs = activeThreadId ? getLocalThreadRevisions(activeThreadId) : [];
+  const serverRevs = activeJob?.revisions || [];
+  const revMap = new Map<string, JobRevisionInfo>();
+  for (const r of [...localRevs, ...serverRevs]) {
+    revMap.set(r.job_id, r);
+  }
+  const revisions = Array.from(revMap.values()).sort((a, b) => a.version - b.version);
+  const currentRevIdx = revisions.findIndex((r) => r.job_id === activeJob?.job_id);
+  const currentVersion =
+    activeJob?.version ?? (currentRevIdx >= 0 ? revisions[currentRevIdx].version : 1);
+  const latestRevision = revisions[revisions.length - 1] || null;
+  const latestVersion = latestRevision?.version ?? currentVersion;
+  const isLatest =
+    !latestRevision ||
+    activeJob?.job_id === latestRevision.job_id ||
+    currentVersion >= latestVersion;
+  const prevRevision = currentRevIdx > 0 ? revisions[currentRevIdx - 1] : null;
+  const nextRevision =
+    currentRevIdx >= 0 && currentRevIdx < revisions.length - 1 ? revisions[currentRevIdx + 1] : null;
+
   return (
     <div className="app-shell">
       <Sidebar
@@ -581,8 +734,9 @@ export default function App() {
         }}
         sessions={sessions}
         activeJobId={intakeMode ? null : activeJob?.job_id || null}
+        activeThreadId={intakeMode ? null : activeThreadId || null}
         onSelectSession={(jid) => void loadJob(jid)}
-        onDeleteSession={(jid) => void handleDeleteSession(jid)}
+        onDeleteSession={(tid, jid) => void handleDeleteSession(tid, jid)}
         liveRate={liveRate}
         health={health}
         clientId={clientId}
@@ -669,6 +823,102 @@ export default function App() {
           </button>
         </header>
 
+        {!intakeMode && profile && activeJob && (
+          <>
+            <div className="revision-bar">
+              <div className="revision-nav">
+                <button
+                  type="button"
+                  className="rev-step-btn"
+                  disabled={!prevRevision}
+                  onClick={() => prevRevision && void loadJob(prevRevision.job_id)}
+                  title="View previous analysis"
+                >
+                  ← Prev
+                </button>
+
+                <div className="rev-pills">
+                  {revisions.length > 0 ? (
+                    revisions.map((rev) => {
+                      const active = rev.job_id === activeJob.job_id;
+                      const revLatest = rev.job_id === latestRevision?.job_id;
+                      return (
+                        <button
+                          key={rev.job_id}
+                          type="button"
+                          className={`rev-pill ${active ? "active" : ""}`}
+                          onClick={() => !active && void loadJob(rev.job_id)}
+                          title={`${rev.student_name || "Analysis"} · Score ${rev.score ?? "—"}`}
+                        >
+                          v{rev.version}
+                          {rev.score !== null && rev.score !== undefined ? ` (${rev.score})` : ""}
+                          {revLatest ? " · Latest" : ""}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <span className="rev-pill active">v{currentVersion} · Latest</span>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  className="rev-step-btn"
+                  disabled={!nextRevision}
+                  onClick={() => nextRevision && void loadJob(nextRevision.job_id)}
+                  title="View next analysis"
+                >
+                  Next →
+                </button>
+              </div>
+
+              <button
+                type="button"
+                className="reanalyze-btn"
+                onClick={() => setReanalyzeOpen(true)}
+              >
+                <Icon name="refresh" size={14} />{" "}
+                {isLatest ? "Re-analyze" : `Re-analyze from v${currentVersion}`}
+              </button>
+            </div>
+
+            {!isLatest && latestRevision && (
+              <div className="archive-banner" role="status">
+                <div className="archive-banner-copy">
+                  <Icon name="alert" size={17} />
+                  <div>
+                    <strong>
+                      Viewing older analysis v{currentVersion} (Read-only archive)
+                    </strong>
+                    <p>
+                      Only <b>Latest (v{latestVersion})</b> can run new capabilities. Re-analyzing
+                      from v{currentVersion} will delete all newer versions (v{currentVersion + 1}
+                      {latestVersion > currentVersion + 1 ? `–v${latestVersion}` : ""}) and make the
+                      new analysis Latest.
+                    </p>
+                  </div>
+                </div>
+                <div className="archive-banner-actions">
+                  <button
+                    type="button"
+                    className="boot-secondary"
+                    onClick={() => setReanalyzeOpen(true)}
+                  >
+                    Re-analyze from v{currentVersion}
+                  </button>
+                  <button
+                    type="button"
+                    className="boot-primary"
+                    onClick={() => void loadJob(latestRevision.job_id)}
+                  >
+                    Jump to Latest (v{latestVersion})
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
         {intakeMode || !profile || !activeJob ? (
           <IntakeView
             onAnalyze={handleAnalyze}
@@ -686,6 +936,8 @@ export default function App() {
             type={tab}
             job={activeJob}
             activeStates={capLiveStates}
+            isArchived={!isLatest}
+            latestVersion={latestVersion}
             onTrigger={(cap, opts) => void handleTriggerCapability(cap, opts)}
             onOpenResult={(cap, title) => setModalCap({ cap, title })}
           />
@@ -697,6 +949,7 @@ export default function App() {
           capability={modalCap.cap}
           title={modalCap.title || findCapabilityTitle(modalCap.cap)}
           data={activeJob.results[modalCap.cap]}
+          isArchived={!isLatest}
           onClose={() => setModalCap(null)}
           onRegenerate={() => {
             const target = modalCap.cap;
@@ -720,6 +973,29 @@ export default function App() {
         onExportBackup={handleExportWorkspace}
         onClearAllLocal={() => void handleClearAllLocal()}
       />
+
+      {activeJob && (
+        <ReanalyzeModal
+          open={reanalyzeOpen}
+          studentName={activeJob.student_name || profile?.name || "Student"}
+          baseVersion={currentVersion}
+          latestVersion={latestVersion}
+          initialText={activeJob.source_text || profile?.summary || ""}
+          progress={reanalyzeProgress}
+          onSubmit={handleReanalyze}
+          onClose={() => {
+            setReanalyzeOpen(false);
+            setReanalyzeProgress({
+              active: false,
+              jobId: null,
+              contextDone: false,
+              profileDone: false,
+              ragDone: false,
+              error: null,
+            });
+          }}
+        />
+      )}
     </div>
   );
 }

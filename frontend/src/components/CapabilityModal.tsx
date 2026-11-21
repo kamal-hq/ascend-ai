@@ -37,12 +37,14 @@ export function CapabilityModal({
   capability,
   title,
   data,
+  isArchived = false,
   onClose,
   onRegenerate,
 }: {
   capability: CapabilityName;
   title: string;
   data: unknown;
+  isArchived?: boolean;
   onClose: () => void;
   onRegenerate: () => void;
 }) {
@@ -547,9 +549,13 @@ export function CapabilityModal({
             <h2>{title}</h2>
           </div>
           <div className="drawer-header-actions">
-            <button type="button" className="drawer-action" onClick={onRegenerate}>
-              <Icon name="refresh" size={14} /> Regenerate
-            </button>
+            {isArchived ? (
+              <span className="pill">Read-only archive</span>
+            ) : (
+              <button type="button" className="drawer-action" onClick={onRegenerate}>
+                <Icon name="refresh" size={14} /> Regenerate
+              </button>
+            )}
             <button type="button" className="drawer-close" onClick={onClose} aria-label="Close">
               <Icon name="x" size={18} />
             </button>

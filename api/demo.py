@@ -35,6 +35,15 @@ def get_client_id(x_client_id: str | None = Header(default=None, alias="X-Client
     return normalize_client_id(x_client_id)
 
 
+_DEMO_SOURCE_TEXT = (
+    "Sara Ahmed — BS Software Engineering, NUST Islamabad (2025), CGPA 3.58. "
+    "1 year experience as Junior Machine Learning Engineer (internship + part-time) building "
+    "medical image classifiers and Python/FastAPI microservices. Led Women in Computing chapter (120 members). "
+    "Targeting fully funded MS Artificial Intelligence programs in Germany and the UK (DAAD EPOS, Chevening, Erasmus Mundus). "
+    "Long-term goal: Healthcare AI research and engineering leadership."
+)
+
+
 def seed_demo_for_client(client_id: str = "default") -> str | None:
     """Seed one realistic Sara Ahmed workspace for *client_id* if they currently have 0 jobs."""
     cid = normalize_client_id(client_id)
@@ -47,7 +56,11 @@ def seed_demo_for_client(client_id: str = "default") -> str | None:
         seed = json.loads(seed_path.read_text(encoding="utf-8"))
         results = seed.get("results") or {}
         profile = results.get("profile") or {}
-        job_id = create_job(seed.get("input_preview", ""), client_id=cid)
+        job_id = create_job(
+            seed.get("input_preview", ""),
+            client_id=cid,
+            source_text=_DEMO_SOURCE_TEXT,
+        )
         update_job_meta(
             job_id,
             student_name=seed.get("student_name", profile.get("name", "Sara Ahmed")),

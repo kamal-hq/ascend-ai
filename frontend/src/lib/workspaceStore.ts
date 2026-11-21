@@ -1,4 +1,4 @@
-import type { JobStatusResponse, JobSummary } from "@/types/api";
+import type { JobRevisionInfo, JobStatusResponse, JobSummary } from "@/types/api";
 
 const CLIENT_ID_KEY = "ascend.client_id";
 const WORKSPACE_KEY = "ascend.workspace.v1";
@@ -111,13 +111,64 @@ export function deleteLocalSnapshot(jobId: string): void {
   }
 }
 
-export function remapLocalJobId(oldId: string, newId: string): void {
-  if (!oldId || !newId || oldId === newId) return;
+export function deleteLocalThread(threadId: string): void {
+  if (!threadId) return;
+  const map = loadLocalSnapshots();
+  let changed = false;
+  for (const [id, snap] of Object.entries(map)) {
+    if ((snap.thread_id || snap.job_id) === threadId) {
+      delete map[id];
+      changed = true;
+    }
+  }
+  if (changed) writeLocalSnapshots(map);
+}
+
+export function pruneLocalThreadAfterVersion(
+  threadId: string,
+  baseVersion: number,
+  keepJobId: string,
+): void {
+  if (!threadId) return;
+  const map = loadLocalSnapshots();
+  let changed = false;
+  for (const [id, snap] of Object.entries(map)) {
+    const tid = snap.thread_id || snap.job_id;
+    const ver = snap.version ?? 1;
+    if (tid === threadId && ver > baseVersion && id !== keepJobId) {
+      delete map[id];
+      changed = true;
+    }
+  }
+  if (changed) writeLocalSnapshots(map);
+}
+
+export function getLocalThreadRevisions(threadId: string): JobRevisionInfo[] {
+  if (!threadId) return [];
+  return Object.values(loadLocalSnapshots())
+    .filter((j) => (j.thread_id || j.job_id) === threadId)
+    .sort((a, b) => (a.version ?? 1) - (b.version ?? 1))
+    .map((j) => ({
+      job_id: j.job_id,
+      version: j.version ?? 1,
+      score: j.score ?? j.results?.profile?.profile_strength_score ?? null,
+      student_name: j.student_name || j.results?.profile?.name || "",
+      target_program: j.target_program || j.results?.profile?.target_program || "",
+      created_at: j.created_at,
+    }));
+}
+
+export function remapLocalJobId(oldId: string, newId: string, newThreadId?: string): void {
+  if (!oldId || !newId) return;
   const map = loadLocalSnapshots();
   const existing = map[oldId];
   if (!existing) return;
-  delete map[oldId];
-  map[newId] = { ...existing, job_id: newId };
+  if (oldId !== newId) delete map[oldId];
+  map[newId] = {
+    ...existing,
+    job_id: newId,
+    thread_id: newThreadId || (existing.thread_id === oldId ? newId : existing.thread_id),
+  };
   writeLocalSnapshots(map);
 }
 
@@ -126,6 +177,8 @@ export function listLocalSummaries(): JobSummary[] {
     .sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at))
     .map((j) => ({
       job_id: j.job_id,
+      thread_id: j.thread_id || j.job_id,
+      version: j.version ?? 1,
       status: j.status,
       student_name: j.student_name || j.results?.profile?.name || "",
       target_program: j.target_program || j.results?.profile?.target_program || "",
