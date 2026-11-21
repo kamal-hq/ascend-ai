@@ -1,3 +1,4 @@
+import { getClientId } from "@/lib/workspaceStore";
 import type {
   CapabilityName,
   CapabilityStatus,
@@ -11,7 +12,9 @@ export const API_BASE =
   "http://127.0.0.1:8000";
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, init);
+  const headers = new Headers(init?.headers);
+  headers.set("X-Client-Id", getClientId());
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   if (!res.ok) {
     let detail = `Request failed (${res.status})`;
     try {
@@ -102,9 +105,37 @@ export async function wakeBackend(options?: {
   }
 }
 
-export async function listJobs(limit = 20, offset = 0): Promise<JobSummary[]> {
-  const res = await apiJson<{ jobs: JobSummary[] }>(`/jobs?limit=${limit}&offset=${offset}`);
+export async function listJobs(
+  limit = 20,
+  offset = 0,
+  seedDemo = false,
+): Promise<JobSummary[]> {
+  const seed = seedDemo ? "&seed_demo=true" : "";
+  const res = await apiJson<{ jobs: JobSummary[] }>(
+    `/jobs?limit=${limit}&offset=${offset}${seed}`,
+  );
   return res.jobs;
+}
+
+export async function restoreJobs(
+  jobs: JobStatusResponse[],
+): Promise<Array<{ old_id: string; job_id: string }>> {
+  if (jobs.length === 0) return [];
+  const res = await apiJson<{ restored: Array<{ old_id: string; job_id: string }> }>(
+    "/jobs/restore",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobs }),
+    },
+  );
+  return res.restored || [];
+}
+
+export function seedDemoJob(): Promise<{ seeded: boolean; job_id: string | null }> {
+  return apiJson<{ seeded: boolean; job_id: string | null }>("/jobs/demo", {
+    method: "POST",
+  });
 }
 
 export function getJob(jobId: string): Promise<JobStatusResponse> {
@@ -158,7 +189,10 @@ export async function exportDocx(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/export/docx`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "X-Client-Id": getClientId(),
+    },
     body: JSON.stringify({ title, content, filename }),
   });
   if (!res.ok) {
@@ -183,7 +217,10 @@ export function subscribeJobStream(
     onError?: (errMsg: string) => void;
   },
 ): () => void {
-  const es = new EventSource(`${API_BASE}/jobs/${encodeURIComponent(jobId)}/stream`);
+  const clientId = encodeURIComponent(getClientId());
+  const es = new EventSource(
+    `${API_BASE}/jobs/${encodeURIComponent(jobId)}/stream?client_id=${clientId}`,
+  );
   let closed = false;
 
   const cleanup = () => {
@@ -251,8 +288,9 @@ export function subscribeCapabilityStream(
     onError?: (errMsg: string) => void;
   },
 ): () => void {
+  const clientId = encodeURIComponent(getClientId());
   const es = new EventSource(
-    `${API_BASE}/jobs/${encodeURIComponent(jobId)}/capabilities/${capability}/stream`,
+    `${API_BASE}/jobs/${encodeURIComponent(jobId)}/capabilities/${capability}/stream?client_id=${clientId}`,
   );
   let closed = false;
 

@@ -2104,3 +2104,71 @@
 .boot-secondary:hover {
   background: #f5f7fa;
 }
+
+
+/* Browser Workspace Persistence Card */
+.load-demo-link {
+  margin-top: 6px;
+  color: #0d9488;
+  font-size: 11.5px;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.workspace-card {
+  margin-bottom: 10px;
+  padding: 11px 12px;
+  border: 1px solid #e1e6ed;
+  border-radius: 10px;
+  background: #f9fbfd;
+}
+.workspace-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.workspace-head strong {
+  color: #21324b;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+.workspace-head span {
+  padding: 2px 6px;
+  border-radius: 99px;
+  color: #5b697d;
+  background: #e9eff6;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: ui-monospace, monospace;
+}
+.workspace-meta {
+  margin-top: 4px;
+  color: #6b7688;
+  font-size: 10.5px;
+  line-height: 1.35;
+}
+.workspace-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 9px;
+}
+.workspace-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 1px solid #d5dde7;
+  border-radius: 7px;
+  color: #273750;
+  background: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.workspace-actions button:hover {
+  border-color: #0d9488;
+  color: #087b6c;
+}

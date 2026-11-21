@@ -11,17 +11,20 @@ Routes mounted at ``/jobs`` by api/main.py:
 import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from api.demo import get_client_id, seed_demo_for_client
 from config import ALLOWED_CAPABILITIES
 from data.db import (
+    count_jobs,
     create_job,
     delete_job,
     get_job,
     get_result,
     get_results,
     list_jobs,
+    restore_job_snapshot,
     save_capability_state,
     update_job_status,
 )
@@ -95,6 +98,21 @@ class JobListResponse(BaseModel):
     offset: int
 
 
+class JobRestoreItem(BaseModel):
+    job_id: str = ""
+    student_name: str = ""
+    target_program: str = ""
+    score: int | None = None
+    input_preview: str = ""
+    created_at: str = ""
+    updated_at: str = ""
+    results: dict[str, Any] = Field(default_factory=dict)
+
+
+class JobsRestoreRequest(BaseModel):
+    jobs: list[JobRestoreItem] = Field(default_factory=list, max_length=30)
+
+
 # ---------------------------------------------------------------------------
 # POST /jobs — create job + enqueue eager phase
 # ---------------------------------------------------------------------------
@@ -104,8 +122,11 @@ class JobListResponse(BaseModel):
     status_code=201,
     summary="Create a new job and enqueue the eager phase",
 )
-def create_job_endpoint(req: JobCreateRequest):
-    job_id = create_job(input_preview=req.input_text)
+def create_job_endpoint(
+    req: JobCreateRequest,
+    client_id: str = Depends(get_client_id),
+):
+    job_id = create_job(input_preview=req.input_text, client_id=client_id)
     update_job_status(job_id, "running")
 
     input_data = {"input_text": req.input_text}
@@ -121,18 +142,51 @@ def create_job_endpoint(req: JobCreateRequest):
 
 
 # ---------------------------------------------------------------------------
+# POST /jobs/restore & POST /jobs/demo — browser workspace sync & isolated demo
+# ---------------------------------------------------------------------------
+@router.post(
+    "/restore",
+    status_code=200,
+    summary="Restore/append browser-saved sessions into this client workspace",
+)
+def restore_jobs_endpoint(
+    req: JobsRestoreRequest,
+    client_id: str = Depends(get_client_id),
+):
+    restored = []
+    for item in req.jobs:
+        new_id = restore_job_snapshot(client_id, item.model_dump())
+        restored.append({"old_id": item.job_id, "job_id": new_id})
+    return {"restored": restored}
+
+
+@router.post(
+    "/demo",
+    status_code=201,
+    summary="Seed an isolated Sara Ahmed demo session for this client workspace",
+)
+def create_demo_session_endpoint(client_id: str = Depends(get_client_id)):
+    job_id = seed_demo_for_client(client_id)
+    return {"seeded": bool(job_id), "job_id": job_id}
+
+
+# ---------------------------------------------------------------------------
 # GET /jobs — list past jobs for history sidebar
 # ---------------------------------------------------------------------------
 @router.get(
     "",
     response_model=JobListResponse,
-    summary="List past sessions/jobs, newest first",
+    summary="List past sessions/jobs for this client workspace, newest first",
 )
 def list_jobs_endpoint(
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
+    seed_demo: bool = Query(False),
+    client_id: str = Depends(get_client_id),
 ):
-    rows = list_jobs(limit=limit, offset=offset)
+    if seed_demo and count_jobs(client_id=client_id) == 0:
+        seed_demo_for_client(client_id)
+    rows = list_jobs(limit=limit, offset=offset, client_id=client_id)
     jobs = [
         JobSummary(
             job_id=r["id"],
@@ -157,8 +211,11 @@ def list_jobs_endpoint(
     response_model=JobStatusResponse,
     summary="Get job status, capability states, and completed payloads",
 )
-def get_job_endpoint(job_id: str):
-    job = get_job(job_id)
+def get_job_endpoint(
+    job_id: str,
+    client_id: str = Depends(get_client_id),
+):
+    job = get_job(job_id, client_id=client_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -199,8 +256,11 @@ def get_job_endpoint(job_id: str):
     status_code=200,
     summary="Delete a saved session/job and all its results",
 )
-def delete_job_endpoint(job_id: str):
-    if not delete_job(job_id):
+def delete_job_endpoint(
+    job_id: str,
+    client_id: str = Depends(get_client_id),
+):
+    if not delete_job(job_id, client_id=client_id):
         raise HTTPException(status_code=404, detail="Job not found")
     return {"deleted": True, "job_id": job_id}
 
@@ -218,6 +278,7 @@ def enqueue_capability_endpoint(
     job_id: str,
     capability_name: str,
     req: CapabilityTriggerRequest | None = Body(default=None),
+    client_id: str = Depends(get_client_id),
 ):
     if capability_name not in ALLOWED_CAPABILITIES:
         raise HTTPException(
@@ -225,7 +286,7 @@ def enqueue_capability_endpoint(
             detail=f"Unknown capability '{capability_name}'. Allowed: {sorted(ALLOWED_CAPABILITIES)}",
         )
 
-    job = get_job(job_id)
+    job = get_job(job_id, client_id=client_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
 

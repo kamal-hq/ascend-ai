@@ -30,6 +30,7 @@ def _connect():
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS jobs (
     id              TEXT PRIMARY KEY,
+    client_id       TEXT NOT NULL DEFAULT 'default',
     status          TEXT NOT NULL DEFAULT 'pending'
                         CHECK (status IN ('pending', 'running', 'completed', 'failed')),
     input_preview   TEXT NOT NULL DEFAULT '',
@@ -70,12 +71,14 @@ def init_db() -> None:
     """Create tables and migrate any missing v3 columns safely."""
     with _connect() as conn:
         conn.executescript(_SCHEMA)
+        _ensure_column(conn, "jobs", "client_id", "TEXT NOT NULL DEFAULT 'default'")
         _ensure_column(conn, "jobs", "input_preview", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(conn, "jobs", "student_name", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(conn, "jobs", "target_program", "TEXT NOT NULL DEFAULT ''")
         _ensure_column(conn, "jobs", "score", "INTEGER")
         _ensure_column(conn, "results", "status", "TEXT NOT NULL DEFAULT 'completed'")
         _ensure_column(conn, "results", "error_message", "TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_jobs_client_id ON jobs(client_id)")
 
 
 def _now() -> str:
@@ -86,18 +89,19 @@ def _now() -> str:
 # Job operations
 # ---------------------------------------------------------------------------
 
-def create_job(input_preview: str = "") -> str:
-    """Insert a new pending job and return its UUID."""
+def create_job(input_preview: str = "", client_id: str = "default") -> str:
+    """Insert a new pending job owned by *client_id* and return its UUID."""
     job_id = uuid.uuid4().hex
     now = _now()
     preview = str(input_preview or "").strip()[:180]
+    cid = str(client_id or "default").strip() or "default"
     with _connect() as conn:
         conn.execute(
             """
-            INSERT INTO jobs (id, status, input_preview, created_at, updated_at)
-            VALUES (?, 'pending', ?, ?, ?)
+            INSERT INTO jobs (id, client_id, status, input_preview, created_at, updated_at)
+            VALUES (?, ?, 'pending', ?, ?, ?)
             """,
-            (job_id, preview, now, now),
+            (job_id, cid, preview, now, now),
         )
     return job_id
 
@@ -130,33 +134,63 @@ def update_job_meta(
         )
 
 
-def get_job(job_id: str) -> dict | None:
+def get_job(job_id: str, client_id: str | None = None) -> dict | None:
     with _connect() as conn:
-        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if client_id is None:
+            row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT * FROM jobs WHERE id = ? AND client_id = ?",
+                (job_id, client_id),
+            ).fetchone()
     return dict(row) if row else None
 
 
-def delete_job(job_id: str) -> bool:
+def delete_job(job_id: str, client_id: str | None = None) -> bool:
     """Delete a job and cascade its results. Returns True if a row was deleted."""
     with _connect() as conn:
-        cur = conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        if client_id is None:
+            cur = conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+        else:
+            cur = conn.execute(
+                "DELETE FROM jobs WHERE id = ? AND client_id = ?",
+                (job_id, client_id),
+            )
         return cur.rowcount > 0
 
 
-def list_jobs(limit: int = 20, offset: int = 0) -> list[dict]:
-    """Return newest jobs first, backfilling missing display meta from profile row if needed."""
+def list_jobs(
+    limit: int = 20,
+    offset: int = 0,
+    client_id: str | None = None,
+) -> list[dict]:
+    """Return newest jobs first, optionally filtered to a single client workspace."""
     with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT j.*, r.payload AS profile_payload
-            FROM jobs j
-            LEFT JOIN results r
-              ON r.job_id = j.id AND r.module_name = 'profile'
-            ORDER BY j.created_at DESC
-            LIMIT ? OFFSET ?
-            """,
-            (limit, offset),
-        ).fetchall()
+        if client_id is None:
+            rows = conn.execute(
+                """
+                SELECT j.*, r.payload AS profile_payload
+                FROM jobs j
+                LEFT JOIN results r
+                  ON r.job_id = j.id AND r.module_name = 'profile'
+                ORDER BY j.created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT j.*, r.payload AS profile_payload
+                FROM jobs j
+                LEFT JOIN results r
+                  ON r.job_id = j.id AND r.module_name = 'profile'
+                WHERE j.client_id = ?
+                ORDER BY j.created_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (client_id, limit, offset),
+            ).fetchall()
 
     out = []
     for row in rows:
@@ -174,11 +208,95 @@ def list_jobs(limit: int = 20, offset: int = 0) -> list[dict]:
     return out
 
 
-def count_jobs() -> int:
-    """Return total stored job rows cleanly."""
+def count_jobs(client_id: str | None = None) -> int:
+    """Return total stored job rows cleanly, optionally scoped to *client_id*."""
     with _connect() as conn:
-        row = conn.execute("SELECT COUNT(*) AS cnt FROM jobs").fetchone()
+        if client_id is None:
+            row = conn.execute("SELECT COUNT(*) AS cnt FROM jobs").fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM jobs WHERE client_id = ?",
+                (client_id,),
+            ).fetchone()
     return int(row["cnt"]) if row else 0
+
+
+def restore_job_snapshot(client_id: str, snapshot: dict) -> str:
+    """Restore/append a browser-saved job snapshot into SQLite owned by *client_id*."""
+    cid = str(client_id or "default").strip() or "default"
+    raw_id = str(snapshot.get("job_id") or "").strip()
+    now = _now()
+    created_at = str(snapshot.get("created_at") or now)
+    updated_at = str(snapshot.get("updated_at") or now)
+    results = snapshot.get("results") or {}
+    profile_pl = results.get("profile") if isinstance(results, dict) else {}
+    if not isinstance(profile_pl, dict):
+        profile_pl = {}
+
+    student_name = str(snapshot.get("student_name") or profile_pl.get("name") or "")[:120]
+    target_program = str(snapshot.get("target_program") or profile_pl.get("target_program") or "")[:160]
+    score = snapshot.get("score")
+    if score is None:
+        score = profile_pl.get("profile_strength_score")
+    preview = str(snapshot.get("input_preview") or profile_pl.get("summary") or "")[:180]
+
+    with _connect() as conn:
+        target_id = raw_id or uuid.uuid4().hex
+        existing = conn.execute("SELECT client_id FROM jobs WHERE id = ?", (target_id,)).fetchone()
+        if existing is not None:
+            if existing["client_id"] != cid:
+                # Collision with another visitor's row — preserve isolation with fresh ID
+                target_id = uuid.uuid4().hex
+                existing = None
+
+        if existing is None:
+            conn.execute(
+                """
+                INSERT INTO jobs (id, client_id, status, input_preview, student_name, target_program, score, created_at, updated_at)
+                VALUES (?, ?, 'completed', ?, ?, ?, ?, ?, ?)
+                """,
+                (target_id, cid, preview, student_name, target_program, score, created_at, updated_at),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE jobs
+                SET student_name = COALESCE(NULLIF(student_name, ''), ?),
+                    target_program = COALESCE(NULLIF(target_program, ''), ?),
+                    score = COALESCE(score, ?),
+                    updated_at = ?
+                WHERE id = ?
+                """,
+                (student_name, target_program, score, updated_at, target_id),
+            )
+
+        if isinstance(results, dict):
+            existing_caps = {
+                row["module_name"]
+                for row in conn.execute(
+                    "SELECT module_name FROM results WHERE job_id = ? AND status = 'completed'",
+                    (target_id,),
+                ).fetchall()
+            }
+            for cap_name, payload in results.items():
+                if cap_name in existing_caps or not isinstance(payload, dict) or "error" in payload:
+                    continue
+                serialized = json.dumps(payload, ensure_ascii=False)
+                conn.execute(
+                    """
+                    INSERT INTO results (job_id, module_name, status, payload, error_message, completed_at)
+                    VALUES (?, ?, 'completed', ?, NULL, ?)
+                    ON CONFLICT (job_id, module_name)
+                    DO UPDATE SET
+                        status = excluded.status,
+                        payload = excluded.payload,
+                        error_message = NULL,
+                        completed_at = excluded.completed_at
+                    """,
+                    (target_id, str(cap_name), serialized, updated_at),
+                )
+
+    return target_id
 
 
 # ---------------------------------------------------------------------------

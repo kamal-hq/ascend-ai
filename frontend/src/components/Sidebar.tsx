@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Icon } from "@/components/Icon";
 import type { HealthResponse, JobSummary } from "@/types/api";
 
@@ -30,6 +31,11 @@ export function Sidebar({
   onDeleteSession,
   liveRate,
   health,
+  clientId,
+  workspaceNotice,
+  onExportWorkspace,
+  onImportWorkspace,
+  onLoadDemo,
   onOpenHealthCheck,
   showAllHistory,
   onToggleShowAll,
@@ -43,10 +49,16 @@ export function Sidebar({
   onDeleteSession: (jobId: string) => void;
   liveRate: number;
   health: HealthResponse | null;
+  clientId: string;
+  workspaceNotice: string | null;
+  onExportWorkspace: () => void;
+  onImportWorkspace: (file?: File | null) => void;
+  onLoadDemo: () => void;
   onOpenHealthCheck: () => void;
   showAllHistory: boolean;
   onToggleShowAll: () => void;
 }) {
+  const importInputRef = useRef<HTMLInputElement>(null);
   const visibleSessions = showAllHistory ? sessions : sessions.slice(0, 5);
   const apiOnline = Boolean(health && health.status === "ok");
   const statusLabel = !apiOnline
@@ -90,7 +102,12 @@ export function Sidebar({
 
         <div className="session-list">
           {visibleSessions.length === 0 ? (
-            <p className="empty-history">No saved sessions yet.</p>
+            <div className="empty-history">
+              <p>No saved sessions yet.</p>
+              <button type="button" className="load-demo-link" onClick={onLoadDemo}>
+                Load Sara Ahmed demo
+              </button>
+            </div>
           ) : (
             visibleSessions.map((session) => {
               const displayName =
@@ -139,6 +156,38 @@ export function Sidebar({
         </div>
 
         <div className="sidebar-spacer" />
+
+        <div className="workspace-card">
+          <div className="workspace-head">
+            <strong>Your browser workspace</strong>
+            <span>#{clientId.slice(-6)}</span>
+          </div>
+          <p className="workspace-meta">
+            {workspaceNotice || `${sessions.length} saved session(s) · auto-synced`}
+          </p>
+          <div className="workspace-actions">
+            <button type="button" onClick={onExportWorkspace} title="Download saved sessions backup (.json)">
+              <Icon name="download" size={13} /> Save backup
+            </button>
+            <button
+              type="button"
+              onClick={() => importInputRef.current?.click()}
+              title="Import & append sessions from a backup JSON file"
+            >
+              <Icon name="upload" size={13} /> Import
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".json,application/json"
+              hidden
+              onChange={(e) => {
+                onImportWorkspace(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+          </div>
+        </div>
 
         <div className="rate-card">
           <div>

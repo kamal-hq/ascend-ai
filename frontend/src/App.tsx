@@ -5,6 +5,8 @@ import {
   deleteJob,
   getJob,
   listJobs,
+  restoreJobs,
+  seedDemoJob,
   subscribeCapabilityStream,
   subscribeJobStream,
   triggerCapability,
@@ -20,6 +22,18 @@ import {
   SystemBootOverlay,
   type BootCheckState,
 } from "@/components/SystemBootOverlay";
+import {
+  deleteLocalSnapshot,
+  exportWorkspaceFile,
+  getClientId,
+  isDemoInitialized,
+  listLocalSummaries,
+  loadLocalSnapshots,
+  markDemoInitialized,
+  mergeImportedWorkspace,
+  remapLocalJobId,
+  saveLocalSnapshot,
+} from "@/lib/workspaceStore";
 import type {
   CapabilityName,
   CapabilityStatus,
@@ -52,8 +66,10 @@ export default function App() {
   const [showAllHistory, setShowAllHistory] = useState(false);
 
   const [health, setHealth] = useState<HealthResponse | null>(null);
-  const [sessions, setSessions] = useState<JobSummary[]>([]);
+  const [sessions, setSessions] = useState<JobSummary[]>(() => listLocalSummaries());
   const [activeJob, setActiveJob] = useState<JobStatusResponse | null>(null);
+  const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
+  const clientId = getClientId();
   const [capLiveStates, setCapLiveStates] = useState<
     Record<string, { status: CapabilityStatus; error?: string }>
   >({});
@@ -94,18 +110,36 @@ export default function App() {
 
   const refreshSessions = useCallback(async () => {
     try {
-      const rows = await listJobs(30);
+      const rows = await listJobs(30, 0, false);
       setSessions(rows);
       return rows;
     } catch {
-      return [];
+      const local = listLocalSummaries();
+      setSessions(local);
+      return local;
     }
   }, []);
 
   const loadJob = useCallback(
     async (jobId: string) => {
       clearStreams();
-      const snap = await getJob(jobId);
+      const localMap = loadLocalSnapshots();
+      let snap: JobStatusResponse;
+      try {
+        snap = await getJob(jobId);
+      } catch (err) {
+        const fallback = localMap[jobId];
+        if (!fallback) throw err;
+        try {
+          const restored = await restoreJobs([fallback]);
+          const mappedId = restored[0]?.job_id || jobId;
+          if (mappedId !== jobId) remapLocalJobId(jobId, mappedId);
+          snap = await getJob(mappedId);
+        } catch {
+          snap = fallback;
+        }
+      }
+      saveLocalSnapshot(snap);
       setActiveJob(snap);
       setCapLiveStates({});
       setModalCap(null);
@@ -161,6 +195,14 @@ export default function App() {
       }, 400);
 
       try {
+        const initialSnapshots = Object.values(loadLocalSnapshots()).sort(
+          (a, b) => Date.parse(b.created_at) - Date.parse(a.created_at),
+        );
+        if (initialSnapshots.length > 0 && !activeJobIdRef.current) {
+          setActiveJob(initialSnapshots[0]);
+          setIntakeMode(false);
+        }
+
         const res = await wakeBackend({
           maxWaitMs: 75_000,
           attemptTimeoutMs: 9_000,
@@ -180,20 +222,52 @@ export default function App() {
         if (controller.signal.aborted) return;
 
         setHealth(res.health);
-        const rows = await refreshSessions();
+
+        const localMap = loadLocalSnapshots();
+        const localList = Object.values(localMap);
+        const shouldAutoSeedDemo = localList.length === 0 && !isDemoInitialized();
+
+        const serverRows = await listJobs(30, 0, shouldAutoSeedDemo);
         if (controller.signal.aborted) return;
 
-        if (!activeJobIdRef.current) {
-          const latestCompleted = rows.find((r) => r.status === "completed");
-          if (latestCompleted) {
-            try {
-              await loadJob(latestCompleted.job_id);
-            } catch {
-              setIntakeMode(true);
+        const serverIds = new Set(serverRows.map((r) => r.job_id));
+        const missingOnServer = localList.filter((j) => !serverIds.has(j.job_id));
+        let syncedRows = serverRows;
+
+        if (missingOnServer.length > 0) {
+          try {
+            const remapped = await restoreJobs(missingOnServer);
+            for (const item of remapped) {
+              if (item.old_id && item.job_id && item.old_id !== item.job_id) {
+                remapLocalJobId(item.old_id, item.job_id);
+                if (activeJobIdRef.current === item.old_id) {
+                  activeJobIdRef.current = item.job_id;
+                }
+              }
             }
-          } else {
+            syncedRows = await listJobs(30, 0, false);
+          } catch {
+            // Keep browser-cached sessions visible if restore fails
+          }
+        }
+
+        markDemoInitialized();
+        setSessions(syncedRows.length > 0 ? syncedRows : listLocalSummaries());
+        if (controller.signal.aborted) return;
+
+        const targetId =
+          (activeJobIdRef.current && syncedRows.some((r) => r.job_id === activeJobIdRef.current)
+            ? activeJobIdRef.current
+            : syncedRows.find((r) => r.status === "completed")?.job_id) || null;
+
+        if (targetId) {
+          try {
+            await loadJob(targetId);
+          } catch {
             setIntakeMode(true);
           }
+        } else if (!activeJobIdRef.current) {
+          setIntakeMode(true);
         }
 
         setBootState({
@@ -342,6 +416,7 @@ export default function App() {
         },
         onResult: async () => {
           const snap = await getJob(jobId);
+          saveLocalSnapshot(snap);
           setActiveJob(snap);
           setCapLiveStates((prev) => ({
             ...prev,
@@ -370,20 +445,72 @@ export default function App() {
   };
 
   const handleDeleteSession = async (jobId: string) => {
+    deleteLocalSnapshot(jobId);
     try {
       await deleteJob(jobId);
-      const updated = await refreshSessions();
-      if (activeJob?.job_id === jobId) {
-        const next = updated.find((r) => r.status === "completed");
-        if (next) {
-          await loadJob(next.job_id);
-        } else {
-          setActiveJob(null);
-          setIntakeMode(true);
+    } catch {
+      // ignore if already wiped on free server
+    }
+    const updated = await refreshSessions();
+    if (activeJob?.job_id === jobId) {
+      const next = updated.find((r) => r.status === "completed");
+      if (next) {
+        await loadJob(next.job_id);
+      } else {
+        setActiveJob(null);
+        setIntakeMode(true);
+      }
+    }
+  };
+
+  const handleExportWorkspace = () => {
+    const count = exportWorkspaceFile();
+    setWorkspaceNotice(count > 0 ? `Saved ${count} session(s)` : "No completed sessions to save");
+    window.setTimeout(() => setWorkspaceNotice(null), 2600);
+  };
+
+  const handleImportWorkspace = async (file?: File | null) => {
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const imported = mergeImportedWorkspace(text);
+      if (imported.length === 0) {
+        setWorkspaceNotice("No valid sessions in file");
+        window.setTimeout(() => setWorkspaceNotice(null), 3000);
+        return;
+      }
+      let targetId = imported[0].job_id;
+      try {
+        const remapped = await restoreJobs(imported);
+        for (const item of remapped) {
+          if (item.old_id && item.job_id && item.old_id !== item.job_id) {
+            remapLocalJobId(item.old_id, item.job_id);
+            if (item.old_id === targetId) targetId = item.job_id;
+          }
         }
+      } catch {
+        // imported sessions still saved locally even offline
+      }
+      await refreshSessions();
+      await loadJob(targetId);
+      setWorkspaceNotice(`Appended ${imported.length} session(s)`);
+      window.setTimeout(() => setWorkspaceNotice(null), 3000);
+    } catch {
+      setWorkspaceNotice("Invalid workspace JSON file");
+      window.setTimeout(() => setWorkspaceNotice(null), 3000);
+    }
+  };
+
+  const handleLoadDemo = async () => {
+    try {
+      const res = await seedDemoJob();
+      await refreshSessions();
+      if (res.job_id) {
+        await loadJob(res.job_id);
       }
     } catch {
-      // ignore transient delete errors
+      setWorkspaceNotice("Connect to backend to load demo");
+      window.setTimeout(() => setWorkspaceNotice(null), 2600);
     }
   };
 
@@ -421,6 +548,11 @@ export default function App() {
         onDeleteSession={(jid) => void handleDeleteSession(jid)}
         liveRate={liveRate}
         health={health}
+        clientId={clientId}
+        workspaceNotice={workspaceNotice}
+        onExportWorkspace={handleExportWorkspace}
+        onImportWorkspace={(f) => void handleImportWorkspace(f)}
+        onLoadDemo={() => void handleLoadDemo()}
         onOpenHealthCheck={() => {
           setSidebarOpen(false);
           void runBootCheck(true);

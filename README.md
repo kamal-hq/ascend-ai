@@ -1,5 +1,7 @@
 # Ascend AI: Career & Scholarship Studio (v3)
 
+**Live App:** [ascend-ai-sandy.vercel.app](https://ascend-ai-sandy.vercel.app/)
+
 Ascend AI is an async, modular AI platform that analyzes a student's CV (PDF) or background notes in seconds and unlocks **11 independent, on-demand career, scholarship, and research capabilities** streamed live into a Vite + React workspace.
 
 ## Architecture & Tech Stack
@@ -66,7 +68,7 @@ Open `http://127.0.0.1:5173` in your browser.
 
 Ascend AI is tuned for **100% free-tier hosting** with zero paid databases or Redis add-ons:
 - **Wake-up pre-flight popup:** When a user lands, the frontend runs live `GET /health?warmup=true` retries until the sleeping Render free container wakes up (~25–50s on cold start), warms `data/scholarships.json` (`371` awards) and SQLite, and reports system readiness.
-- **Auto-seeded demo workspace:** On ephemeral free-tier boots starting with an empty SQLite file, [data/demo_seed.json](data/demo_seed.json) populates one realistic `Sara Ahmed` workspace (`0` Groq tokens burned) alongside `371` ranked scholarships.
+- **Auto-seeded demo & browser-synced workspaces:** Each visitor gets an isolated workspace (`X-Client-Id`) synced with browser `localStorage` (`Save backup` / `Import` `.json`). When Render wakes after idle, the browser automatically restores saved sessions back to SQLite (`POST /jobs/restore`), and brand-new visitors start with an isolated `Sara Ahmed` showcase (`0` Groq tokens burned).
 
 1. **Backend (`api/` + `worker/` + `agents/`) → [Render Free Tier](https://render.com) (`plan: free`):**
    * Use **Blueprint** ([render.yaml](render.yaml)) or **New Web Service** (`Python 3`, root directory `.`)

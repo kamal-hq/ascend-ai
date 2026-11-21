@@ -10,9 +10,10 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from sse_starlette.sse import EventSourceResponse
 
+from api.demo import normalize_client_id
 from config import ALLOWED_CAPABILITIES
 from data.db import get_job, get_result, get_results
 
@@ -28,8 +29,9 @@ _MAX_WAIT: float = 180.0
     "/{job_id}/stream",
     summary="SSE stream of eager phase & capability updates for a job",
 )
-async def stream_job(job_id: str):
-    if get_job(job_id) is None:
+async def stream_job(job_id: str, client_id: str | None = Query(default=None)):
+    cid = normalize_client_id(client_id) if client_id else None
+    if get_job(job_id, client_id=cid) is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
     return EventSourceResponse(
@@ -84,13 +86,18 @@ async def _job_event_generator(job_id: str):
     "/{job_id}/capabilities/{capability_name}/stream",
     summary="SSE stream for a single atomic capability run",
 )
-async def stream_capability(job_id: str, capability_name: str):
+async def stream_capability(
+    job_id: str,
+    capability_name: str,
+    client_id: str | None = Query(default=None),
+):
     if capability_name not in ALLOWED_CAPABILITIES:
         raise HTTPException(
             status_code=422,
             detail=f"Unknown capability '{capability_name}'. Allowed: {sorted(ALLOWED_CAPABILITIES)}",
         )
-    if get_job(job_id) is None:
+    cid = normalize_client_id(client_id) if client_id else None
+    if get_job(job_id, client_id=cid) is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
     return EventSourceResponse(

@@ -18,6 +18,7 @@ export type IconName =
   | "refresh"
   | "sparkle"
   | "target"
+  | "upload"
   | "user"
   | "x";
 
@@ -105,6 +106,12 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
         <circle cx="12" cy="12" r="9" />
         <circle cx="12" cy="12" r="5" />
         <circle cx="12" cy="12" r="1" />
+      </>
+    ),
+    upload: (
+      <>
+        <path d="M12 15V3m0 0-4 4m4-4 4 4" />
+        <path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
       </>
     ),
     user: (

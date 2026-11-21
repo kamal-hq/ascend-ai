@@ -5,71 +5,31 @@ Launch with:
     uvicorn api.main:app --reload
 """
 
-import json
 import logging
 from contextlib import asynccontextmanager
-from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from agents.common.cache import result_cache
-from agents.rag_matcher import _load_scholarships, query_scholarships_structured
+from agents.rag_matcher import _load_scholarships
+from api.demo import get_client_id, seed_demo_for_client
 from api.routes.jobs import router as jobs_router
 from api.routes.utilities import router as utilities_router
 from api.sse import router as sse_router
-from config import CORS_ORIGIN_REGEX, CORS_ORIGINS, DEMO_SEED_JSON, GROQ_API_KEY
-from data.db import (
-    count_jobs,
-    create_job,
-    init_db,
-    save_result,
-    update_job_meta,
-    update_job_status,
-)
+from config import CORS_ORIGIN_REGEX, CORS_ORIGINS, GROQ_API_KEY
+from data.db import count_jobs, init_db
 from worker.queue import count_active_workers, get_connection
 
 logger = logging.getLogger(__name__)
 
 
-def _ensure_demo_seeded() -> None:
-    """Seed one realistic demo workspace once when starting from an empty DB."""
-    if count_jobs() > 0:
-        return
-    seed_path = Path(DEMO_SEED_JSON)
-    if not seed_path.exists():
-        return
-    try:
-        seed = json.loads(seed_path.read_text(encoding="utf-8"))
-        results = seed.get("results") or {}
-        profile = results.get("profile") or {}
-        job_id = create_job(seed.get("input_preview", ""))
-        update_job_meta(
-            job_id,
-            student_name=seed.get("student_name", profile.get("name", "Sara Ahmed")),
-            target_program=seed.get("target_program", profile.get("target_program", "")),
-            score=seed.get("score", profile.get("profile_strength_score")),
-        )
-        for mod in ("context", "profile", "sop_draft", "career_paths"):
-            if mod in results:
-                save_result(job_id, mod, results[mod])
-        if profile:
-            save_result(
-                job_id,
-                "rag_matches",
-                {"matches": query_scholarships_structured(profile, n_results=5)},
-            )
-        update_job_status(job_id, "completed")
-        logger.info("Seeded default demo workspace (%s)", job_id[:8])
-    except Exception:
-        logger.exception("Failed to seed default demo workspace")
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create / migrate SQLite tables, preload scholarship index, and seed empty DB."""
+    """Create / migrate SQLite tables, preload scholarship index, and seed default DB."""
     init_db()
-    _ensure_demo_seeded()
+    if count_jobs() == 0:
+        seed_demo_for_client("default")
     _load_scholarships()
     yield
 
@@ -92,7 +52,10 @@ app.add_middleware(
 
 
 @app.get("/health", tags=["system"])
-def health_check(warmup: bool = False):
+def health_check(
+    warmup: bool = False,
+    client_id: str = Depends(get_client_id),
+):
     """Readiness & free-tier warm-up check for the Vite frontend."""
     redis_ok = False
     workers_active = 0
@@ -106,7 +69,7 @@ def health_check(warmup: bool = False):
     db_ok = False
     jobs_count = 0
     try:
-        jobs_count = count_jobs()
+        jobs_count = count_jobs(client_id=client_id)
         db_ok = True
     except Exception:
         db_ok = False
