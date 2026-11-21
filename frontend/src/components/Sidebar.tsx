@@ -36,6 +36,7 @@ export function Sidebar({
   onExportWorkspace,
   onImportWorkspace,
   onLoadDemo,
+  onOpenPrivacy,
   onOpenHealthCheck,
   showAllHistory,
   onToggleShowAll,
@@ -54,6 +55,7 @@ export function Sidebar({
   onExportWorkspace: () => void;
   onImportWorkspace: (file?: File | null) => void;
   onLoadDemo: () => void;
+  onOpenPrivacy: () => void;
   onOpenHealthCheck: () => void;
   showAllHistory: boolean;
   onToggleShowAll: () => void;
@@ -160,7 +162,17 @@ export function Sidebar({
         <div className="workspace-card">
           <div className="workspace-head">
             <strong>Your browser workspace</strong>
-            <span>#{clientId.slice(-6)}</span>
+            <div className="workspace-badges">
+              <button
+                type="button"
+                className="workspace-privacy-btn"
+                onClick={onOpenPrivacy}
+                title="How local browser privacy & sync work"
+              >
+                Privacy
+              </button>
+              <span>#{clientId.slice(-6)}</span>
+            </div>
           </div>
           <p className="workspace-meta">
             {workspaceNotice || `${sessions.length} saved session(s) · auto-synced`}

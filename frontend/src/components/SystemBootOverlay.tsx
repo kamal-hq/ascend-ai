@@ -132,13 +132,13 @@ export function SystemBootOverlay({
           <div className="boot-step">
             <StepStateIcon state={dbState} />
             <div>
-              <strong>Database &amp; Session Store</strong>
+              <strong>Your Browser Workspace &amp; Session Store</strong>
               <small>
                 {isReady
-                  ? `SQLite ready · ${boot.health?.jobs_count ?? 0} saved session(s)`
+                  ? `Saved automatically on your device · ${boot.health?.jobs_count ?? 0} isolated session(s)`
                   : isError
                     ? "Pending API connection"
-                    : "Initializing workspace & demo session…"}
+                    : "Syncing device storage & private workspace…"}
               </small>
             </div>
           </div>
@@ -173,6 +173,12 @@ export function SystemBootOverlay({
             </div>
           </div>
         </div>
+
+        <p className="boot-privacy-strip">
+          <strong>Privacy:</strong> Your profiles, SOPs, and generated results live automatically
+          inside this browser&apos;s storage (never shared across visitors). Use{" "}
+          <strong>Save backup</strong> anytime to transfer between devices.
+        </p>
 
         <div className="boot-actions">
           {isError ? (

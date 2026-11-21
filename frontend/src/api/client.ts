@@ -11,6 +11,14 @@ export const API_BASE =
   (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8000";
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set("X-Client-Id", getClientId());
@@ -25,7 +33,7 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
     } catch {
       // ignore non-JSON body
     }
-    throw new Error(detail);
+    throw new ApiError(detail, res.status);
   }
   return res.json() as Promise<T>;
 }

@@ -21,9 +21,11 @@ export interface EagerProgressState {
 export function IntakeView({
   onAnalyze,
   eagerProgress,
+  onOpenPrivacy,
 }: {
   onAnalyze: (inputText: string) => Promise<void>;
   eagerProgress: EagerProgressState;
+  onOpenPrivacy: () => void;
 }) {
   const [method, setMethod] = useState<"notes" | "cv">("notes");
   const [text, setText] = useState("");
@@ -197,8 +199,11 @@ export function IntakeView({
         )}
 
         <div className="privacy-note">
-          <span>Private by design</span>Your information is stored locally in SQLite only for your
-          analysis session.
+          <span>Private &amp; on-device</span>Your CV insights, matches, and SOPs save automatically
+          in this browser — never in a shared database.{" "}
+          <button type="button" className="privacy-link-btn" onClick={onOpenPrivacy}>
+            How data works
+          </button>
         </div>
       </section>
 

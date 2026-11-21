@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ApiError,
   checkHealth,
   createJob,
   deleteJob,
@@ -16,6 +17,7 @@ import { CapabilityModal } from "@/components/CapabilityModal";
 import { Icon, type IconName } from "@/components/Icon";
 import { IntakeView, type EagerProgressState } from "@/components/IntakeView";
 import { OverviewView } from "@/components/OverviewView";
+import { PrivacyModal } from "@/components/PrivacyModal";
 import { getInitials, Sidebar } from "@/components/Sidebar";
 import { CAPABILITY_GROUPS, StudioView } from "@/components/StudioView";
 import {
@@ -23,6 +25,7 @@ import {
   type BootCheckState,
 } from "@/components/SystemBootOverlay";
 import {
+  clearAllLocalSnapshots,
   deleteLocalSnapshot,
   exportWorkspaceFile,
   getClientId,
@@ -69,6 +72,7 @@ export default function App() {
   const [sessions, setSessions] = useState<JobSummary[]>(() => listLocalSummaries());
   const [activeJob, setActiveJob] = useState<JobStatusResponse | null>(null);
   const [workspaceNotice, setWorkspaceNotice] = useState<string | null>(null);
+  const [privacyOpen, setPrivacyOpen] = useState(false);
   const clientId = getClientId();
   const [capLiveStates, setCapLiveStates] = useState<
     Record<string, { status: CapabilityStatus; error?: string }>
@@ -398,7 +402,7 @@ export default function App() {
     options?: { custom_notes?: string; sop_text?: string },
   ) => {
     if (!activeJob) return;
-    const jobId = activeJob.job_id;
+    let targetJobId = activeJob.job_id;
 
     setCapLiveStates((prev) => ({
       ...prev,
@@ -406,8 +410,29 @@ export default function App() {
     }));
 
     try {
-      await triggerCapability(jobId, cap, options);
-      const stop = subscribeCapabilityStream(jobId, cap, {
+      try {
+        await triggerCapability(targetJobId, cap, options);
+      } catch (err) {
+        const isMissing = err instanceof ApiError && err.status === 404;
+        const fallback = loadLocalSnapshots()[targetJobId] || activeJob;
+        if (!isMissing || !fallback) throw err;
+
+        // Free-tier backend slept/reset mid-session — silently restore snapshot and retry once
+        const remapped = await restoreJobs([fallback]);
+        const mappedId = remapped[0]?.job_id || targetJobId;
+        if (mappedId !== targetJobId) {
+          remapLocalJobId(targetJobId, mappedId);
+          activeJobIdRef.current = mappedId;
+          setActiveJob((prev) =>
+            prev && prev.job_id === targetJobId ? { ...prev, job_id: mappedId } : prev,
+          );
+          targetJobId = mappedId;
+        }
+        await refreshSessions();
+        await triggerCapability(targetJobId, cap, options);
+      }
+
+      const stop = subscribeCapabilityStream(targetJobId, cap, {
         onStatus: (status) => {
           setCapLiveStates((prev) => ({
             ...prev,
@@ -415,7 +440,7 @@ export default function App() {
           }));
         },
         onResult: async () => {
-          const snap = await getJob(jobId);
+          const snap = await getJob(targetJobId);
           saveLocalSnapshot(snap);
           setActiveJob(snap);
           setCapLiveStates((prev) => ({
@@ -424,7 +449,7 @@ export default function App() {
           }));
         },
         onError: async (errMsg) => {
-          const snap = await getJob(jobId).catch(() => null);
+          const snap = await getJob(targetJobId).catch(() => null);
           if (snap) setActiveJob(snap);
           setCapLiveStates((prev) => ({
             ...prev,
@@ -514,6 +539,18 @@ export default function App() {
     }
   };
 
+  const handleClearAllLocal = async () => {
+    clearStreams();
+    const existingIds = sessions.map((s) => s.job_id);
+    clearAllLocalSnapshots();
+    setSessions([]);
+    setActiveJob(null);
+    setIntakeMode(true);
+    setWorkspaceNotice("Device history cleared");
+    window.setTimeout(() => setWorkspaceNotice(null), 2600);
+    await Promise.allSettled(existingIds.map((id) => deleteJob(id)));
+  };
+
   const navigate = (next: WorkspaceTab) => {
     setTab(next);
     setIntakeMode(false);
@@ -553,6 +590,10 @@ export default function App() {
         onExportWorkspace={handleExportWorkspace}
         onImportWorkspace={(f) => void handleImportWorkspace(f)}
         onLoadDemo={() => void handleLoadDemo()}
+        onOpenPrivacy={() => {
+          setSidebarOpen(false);
+          setPrivacyOpen(true);
+        }}
         onOpenHealthCheck={() => {
           setSidebarOpen(false);
           void runBootCheck(true);
@@ -629,7 +670,11 @@ export default function App() {
         </header>
 
         {intakeMode || !profile || !activeJob ? (
-          <IntakeView onAnalyze={handleAnalyze} eagerProgress={eagerProgress} />
+          <IntakeView
+            onAnalyze={handleAnalyze}
+            eagerProgress={eagerProgress}
+            onOpenPrivacy={() => setPrivacyOpen(true)}
+          />
         ) : tab === "overview" ? (
           <OverviewView
             profile={profile}
@@ -665,6 +710,15 @@ export default function App() {
         boot={bootState}
         onRetry={() => void runBootCheck(Boolean(bootState.manualInspect))}
         onDismiss={dismissBootOverlay}
+      />
+
+      <PrivacyModal
+        open={privacyOpen}
+        clientId={clientId}
+        sessionCount={sessions.length}
+        onClose={() => setPrivacyOpen(false)}
+        onExportBackup={handleExportWorkspace}
+        onClearAllLocal={() => void handleClearAllLocal()}
       />
     </div>
   );

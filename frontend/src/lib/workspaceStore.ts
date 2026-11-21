@@ -191,3 +191,12 @@ export function mergeImportedWorkspace(rawJson: string): JobStatusResponse[] {
   }
   return imported;
 }
+
+export function clearAllLocalSnapshots(): void {
+  try {
+    window.localStorage.removeItem(WORKSPACE_KEY);
+    window.localStorage.setItem(DEMO_INIT_KEY, "1");
+  } catch {
+    // ignore storage errors
+  }
+}

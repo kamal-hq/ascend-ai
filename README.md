@@ -81,6 +81,15 @@ Ascend AI is tuned for **100% free-tier hosting** with zero paid databases or Re
 
 ---
 
+## Privacy & Local-First Data Storage
+
+* **Saved automatically on your device:** Your CV analyses, profile scores, scholarship matches, and generated SOPs/roadmaps are automatically stored inside **your browser's `localStorage`** under an isolated workspace ID (`X-Client-Id`) — not in a permanent shared multi-user database.
+* **Temporary backend compute & transparent re-sync:** The free-tier backend keeps active sessions in temporary SQLite only during live processing (and resets on container sleep/redeploy). When you revisit — or trigger a new capability after idle sleep — the frontend automatically restores your saved JSON snapshots back into the backend for seamless continuation.
+* **External LLM & search calls:** Text submitted for analysis is sent to Groq solely to generate your structured response; public search queries (`DuckDuckGo`, `ArXiv`, `YouTube`) use a shared 7-day result cache.
+* **User control & portability:** Delete individual sessions (or clear local browser history) anytime, or use **Save backup** / **Import** (`.json`) in the sidebar to move your workspace across browsers or devices.
+
+---
+
 ## Developed By
 
 * **Muhammad Kamal**: Lead AI Architect & Product Strategist
