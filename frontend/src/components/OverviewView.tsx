@@ -127,9 +127,9 @@ export function OverviewView({
     <div className="page">
       <div className="page-intro">
         <div>
-          <p className="eyebrow">Profile intelligence</p>
-          <h1>Your global opportunity map</h1>
-          <p>A focused assessment of where you stand—and the highest-impact moves to make next.</p>
+          <p className="eyebrow">Profile overview</p>
+          <h1>Your opportunity dashboard</h1>
+          <p>Understand where you stand, what to improve, and which opportunities fit you best.</p>
         </div>
         <button className="outline-button" onClick={() => void handleExportReport()} disabled={exporting}>
           <Icon name="download" size={16} /> {exporting ? "Exporting…" : "Export report"}
@@ -141,7 +141,7 @@ export function OverviewView({
           <div className="profile-label">
             <span>{getInitials(profile.name)}</span>
             <div>
-              <p>PROFILE ANALYSIS</p>
+              <p>STUDENT PROFILE</p>
               <h2>{profile.name}</h2>
             </div>
           </div>
@@ -254,8 +254,8 @@ export function OverviewView({
       <section className="matches-section">
         <div className="matches-heading">
           <div>
-            <p className="eyebrow">Curated for your profile</p>
-            <h2>Top scholarship matches</h2>
+            <p className="eyebrow">Recommended for you</p>
+            <h2>Your top scholarship matches</h2>
             <p>Ranked from 370+ curated international opportunities using field alignment, GPA fit, and funding scope.</p>
           </div>
           <div className="matches-actions">

@@ -70,12 +70,12 @@ export function IntakeView({
     <div className="page intake-page">
       <div className="intake-hero">
         <div className="intake-badge">
-          <Icon name="sparkle" size={16} /> AI-POWERED OPPORTUNITY ANALYSIS
+          <Icon name="sparkle" size={16} /> PERSONALIZED STUDENT GUIDANCE
         </div>
         <h1>
-          Your ambition deserves
+          Let’s plan your
           <br />
-          <em>a clearer path.</em>
+          <em>next step.</em>
         </h1>
         <p>
           Share your background or upload a CV to get a focused profile score, gap analysis,

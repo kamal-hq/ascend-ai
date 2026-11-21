@@ -18,6 +18,7 @@ scratch_test.py
 # Local Reference Assets (not for public repo)
 *.xlsx
 Design a Project UI/
+Design a Project UI updated/
 
 # Frontend (Vite)
 node_modules/

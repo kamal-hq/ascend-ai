@@ -105,7 +105,7 @@ export function Sidebar({
             <strong>Ascend</strong>
             <span>AI</span>
           </div>
-          <small>v3</small>
+          <small>BETA</small>
           <button className="mobile-close" onClick={onClose} aria-label="Close menu">
             <Icon name="x" />
           </button>
