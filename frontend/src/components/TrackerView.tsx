@@ -58,12 +58,14 @@ export function TrackerView({
   job,
   isArchived = false,
   saveStatus,
+  focusQuery = null,
   onLoadCatalog,
   onUpdateTracker,
 }: {
   job: JobStatusResponse;
   isArchived?: boolean;
   saveStatus: "idle" | "saving" | "saved" | "error";
+  focusQuery?: { text: string; nonce: number } | null;
   onLoadCatalog: (jobId: string) => Promise<RagScholarshipMatch[]>;
   onUpdateTracker: (updater: (prev: TrackerState) => TrackerState) => void;
 }) {
@@ -86,6 +88,14 @@ export function TrackerView({
   const [newTaskTitle, setNewTaskTitle] = useState("");
   const [newTaskTimeframe, setNewTaskTimeframe] = useState("");
   const [newTaskSchol, setNewTaskSchol] = useState("");
+
+  useEffect(() => {
+    if (!focusQuery) return;
+    setSearch(focusQuery.text);
+    setStatusFilter("all");
+    setMonthFilter("all");
+    setLayout("sheet");
+  }, [focusQuery]);
 
   useEffect(() => {
     let active = true;

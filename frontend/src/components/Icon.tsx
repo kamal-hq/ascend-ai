@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 export type IconName =
   | "alert"
   | "arrow"
+  | "award"
+  | "bell"
   | "book"
   | "briefcase"
   | "calendar"
@@ -15,9 +17,11 @@ export type IconName =
   | "globe"
   | "grid"
   | "menu"
+  | "moon"
   | "plus"
   | "refresh"
   | "sparkle"
+  | "sun"
   | "target"
   | "upload"
   | "user"
@@ -35,6 +39,18 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       <>
         <path d="M5 12h14" />
         <path d="m13 6 6 6-6 6" />
+      </>
+    ),
+    award: (
+      <>
+        <circle cx="12" cy="8.5" r="5" />
+        <path d="M8.5 12.8 7 21l5-2.6L17 21l-1.5-8.2" />
+      </>
+    ),
+    bell: (
+      <>
+        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 8.5-3 8.5h18s-3-1.5-3-8.5" />
+        <path d="M10.3 20a2 2 0 0 0 3.4 0" />
       </>
     ),
     book: (
@@ -96,6 +112,7 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       </>
     ),
     menu: <path d="M4 7h16M4 12h16M4 17h16" />,
+    moon: <path d="M20.5 14.5A8.5 8.5 0 1 1 9.5 3.5a7 7 0 0 0 11 11Z" />,
     plus: <path d="M12 5v14M5 12h14" />,
     refresh: (
       <>
@@ -107,6 +124,12 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
     ),
     sparkle: (
       <path d="m12 3 1.1 3.2a6.8 6.8 0 0 0 4.3 4.3l3.1 1.1-3.1 1.1a6.8 6.8 0 0 0-4.3 4.3L12 20.2 10.9 17a6.8 6.8 0 0 0-4.3-4.3l-3.1-1.1 3.1-1.1a6.8 6.8 0 0 0 4.3-4.3L12 3Z" />
+    ),
+    sun: (
+      <>
+        <circle cx="12" cy="12" r="4" />
+        <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+      </>
     ),
     target: (
       <>

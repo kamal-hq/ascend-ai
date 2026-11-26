@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
   checkHealth,
@@ -19,6 +19,7 @@ import {
 import { CapabilityModal } from "@/components/CapabilityModal";
 import { Icon, type IconName } from "@/components/Icon";
 import { IntakeView, type EagerProgressState } from "@/components/IntakeView";
+import { NotificationBell, ToastStack } from "@/components/NotificationCenter";
 import { OverviewView } from "@/components/OverviewView";
 import { PrivacyModal } from "@/components/PrivacyModal";
 import { ReanalyzeModal } from "@/components/ReanalyzeModal";
@@ -29,6 +30,18 @@ import {
   type BootCheckState,
 } from "@/components/SystemBootOverlay";
 import { TrackerView } from "@/components/TrackerView";
+import {
+  buildDeadlineNotifications,
+  buildGreetingNotification,
+  clearNotificationStorage,
+  createMilestoneNotification,
+  getSessionVisitContext,
+  loadNotificationState,
+  saveNotificationState,
+  type AppNotification,
+  type NotificationAction,
+  type StoredNotificationState,
+} from "@/lib/notifications";
 import {
   clearAllLocalSnapshots,
   deleteLocalThread,
@@ -119,6 +132,12 @@ export default function App() {
     manualInspect: false,
   });
 
+  const [visitContext] = useState(() => getSessionVisitContext());
+  const [notifState, setNotifState] = useState<StoredNotificationState>(() => loadNotificationState());
+  const [activeToasts, setActiveToasts] = useState<AppNotification[]>([]);
+  const [activeCatalog, setActiveCatalog] = useState<RagScholarshipMatch[]>([]);
+  const [trackerFocus, setTrackerFocus] = useState<{ text: string; nonce: number } | null>(null);
+
   const cleanupsRef = useRef<Array<() => void>>([]);
   const bootAbortRef = useRef<AbortController | null>(null);
   const bootAutoCloseRef = useRef<number | null>(null);
@@ -126,6 +145,73 @@ export default function App() {
   const catalogCacheRef = useRef<Record<string, RagScholarshipMatch[]>>({});
   const trackerRef = useRef<Record<string, TrackerState>>({});
   const trackerSaveTimerRef = useRef<number | null>(null);
+  const greetingShownRef = useRef(false);
+  const toastTimersRef = useRef<Map<string, number>>(new Map());
+
+  const dismissToast = useCallback((id: string) => {
+    const timer = toastTimersRef.current.get(id);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      toastTimersRef.current.delete(id);
+    }
+    setActiveToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const pushToast = useCallback(
+    (notif: AppNotification, durationMs = 6200) => {
+      setActiveToasts((prev) => {
+        const filtered = prev.filter((t) => t.id !== notif.id);
+        return [notif, ...filtered].slice(0, 3);
+      });
+      const existing = toastTimersRef.current.get(notif.id);
+      if (existing !== undefined) window.clearTimeout(existing);
+      const timer = window.setTimeout(() => {
+        toastTimersRef.current.delete(notif.id);
+        setActiveToasts((prev) => prev.filter((t) => t.id !== notif.id));
+      }, durationMs);
+      toastTimersRef.current.set(notif.id, timer);
+    },
+    [],
+  );
+
+  const emitMilestone = useCallback(
+    (params: Parameters<typeof createMilestoneNotification>[0]) => {
+      const notif = createMilestoneNotification(params);
+      setNotifState((prev) => {
+        const next: StoredNotificationState = {
+          ...prev,
+          events: [notif, ...prev.events].slice(0, 20),
+        };
+        saveNotificationState(next);
+        return next;
+      });
+      pushToast(notif, 5500);
+    },
+    [pushToast],
+  );
+
+  const handleMarkNotifRead = useCallback((id: string) => {
+    setNotifState((prev) => {
+      if (prev.readIds.includes(id)) return prev;
+      const next: StoredNotificationState = { ...prev, readIds: [...prev.readIds, id] };
+      saveNotificationState(next);
+      return next;
+    });
+  }, []);
+
+  const handleDismissNotif = useCallback((id: string) => {
+    setNotifState((prev) => {
+      const next: StoredNotificationState = {
+        ...prev,
+        readIds: prev.readIds.includes(id) ? prev.readIds : [...prev.readIds, id],
+        dismissedIds: prev.dismissedIds.includes(id) ? prev.dismissedIds : [...prev.dismissedIds, id],
+        events: prev.events.filter((e) => e.id !== id),
+      };
+      saveNotificationState(next);
+      return next;
+    });
+    dismissToast(id);
+  }, [dismissToast]);
 
   useEffect(() => {
     activeJobIdRef.current = activeJob?.job_id ?? null;
@@ -182,6 +268,7 @@ export default function App() {
         }
       }
       setSidebarOpen(false);
+      return snap;
     },
     [clearStreams],
   );
@@ -363,6 +450,10 @@ export default function App() {
       if (trackerSaveTimerRef.current !== null) {
         window.clearTimeout(trackerSaveTimerRef.current);
       }
+      for (const t of toastTimersRef.current.values()) {
+        window.clearTimeout(t);
+      }
+      toastTimersRef.current.clear();
       window.clearInterval(timer);
       clearStreams();
     };
@@ -394,7 +485,7 @@ export default function App() {
         onStatus: async (status) => {
           if (status === "completed") {
             await refreshSessions();
-            await loadJob(jobId);
+            const loaded = await loadJob(jobId);
             setEagerProgress({
               active: false,
               jobId: null,
@@ -402,6 +493,20 @@ export default function App() {
               profileDone: false,
               ragDone: false,
               error: null,
+            });
+            const score = loaded?.results?.profile?.profile_strength_score;
+            const name = loaded?.results?.profile?.name;
+            emitMilestone({
+              idKey: `analyze:${jobId}`,
+              badge: "Analysis Complete",
+              title:
+                typeof score === "number"
+                  ? `Profile ready — Score ${score}/100`
+                  : "Profile analysis complete",
+              message: `${name ? `${name}'s ` : "Your "}top scholarship matches and 370+ award tracker are ready to explore.`,
+              tone: "teal",
+              icon: "sparkle",
+              action: { label: "Open tracker", tab: "tracker" },
             });
           } else {
             const snap = await getJob(jobId).catch(() => null);
@@ -483,6 +588,16 @@ export default function App() {
             ...prev,
             [cap]: { status: "completed" },
           }));
+          const capTitle = findCapabilityTitle(cap);
+          emitMilestone({
+            idKey: `cap:${targetJobId}:${cap}`,
+            badge: "Draft Ready",
+            title: `${capTitle} is ready`,
+            message: "Your generated studio output has been saved automatically on this device.",
+            tone: "teal",
+            icon: "check",
+            action: { label: "View output", capability: { cap, title: capTitle } },
+          });
         },
         onError: async (errMsg) => {
           const snap = await getJob(targetJobId).catch(() => null);
@@ -596,8 +711,9 @@ export default function App() {
             if (baseVersionParam !== undefined) {
               pruneLocalThreadAfterVersion(targetThreadId, baseVersionParam, newJobId);
             }
+            const prevScore = activeJob.results?.profile?.profile_strength_score;
             await refreshSessions();
-            await loadJob(newJobId);
+            const loaded = await loadJob(newJobId);
             setReanalyzeProgress({
               active: false,
               jobId: null,
@@ -607,6 +723,28 @@ export default function App() {
               error: null,
             });
             setReanalyzeOpen(false);
+            const nextScore = loaded?.results?.profile?.profile_strength_score;
+            const nextVer = loaded?.version ?? baseVer + 1;
+            const deltaText =
+              typeof prevScore === "number" && typeof nextScore === "number"
+                ? nextScore > prevScore
+                  ? ` (+${nextScore - prevScore} pts)`
+                  : nextScore < prevScore
+                    ? ` (${nextScore - prevScore} pts)`
+                    : " (same score)"
+                : "";
+            emitMilestone({
+              idKey: `reanalyze:${newJobId}`,
+              badge: `Revision v${nextVer}`,
+              title:
+                typeof nextScore === "number"
+                  ? `Re-analysis complete — Score ${nextScore}/100${deltaText}`
+                  : `Profile updated to v${nextVer}`,
+              message: "Your tracker progress carried over automatically into the latest version.",
+              tone: "teal",
+              icon: "refresh",
+              action: { label: "View overview", tab: "overview" },
+            });
           } else {
             const snap = await getJob(newJobId).catch(() => null);
             const errPayload = snap?.results?.eager_error as { error?: string } | undefined;
@@ -698,6 +836,10 @@ export default function App() {
     }
     const existingIds = sessions.map((s) => s.job_id);
     clearAllLocalSnapshots();
+    clearNotificationStorage();
+    setNotifState({ readIds: [], dismissedIds: [], events: [] });
+    setActiveToasts([]);
+    setActiveCatalog([]);
     trackerRef.current = {};
     catalogCacheRef.current = {};
     setTrackerSaveStatus("idle");
@@ -711,11 +853,17 @@ export default function App() {
 
   const handleLoadCatalog = useCallback(async (jobId: string): Promise<RagScholarshipMatch[]> => {
     if (catalogCacheRef.current[jobId]?.length) {
+      if (activeJobIdRef.current === jobId) {
+        setActiveCatalog(catalogCacheRef.current[jobId]);
+      }
       return catalogCacheRef.current[jobId];
     }
     try {
       const items = await getJobScholarships(jobId);
       catalogCacheRef.current[jobId] = items;
+      if (activeJobIdRef.current === jobId) {
+        setActiveCatalog(items);
+      }
       return items;
     } catch (err) {
       const isMissing = err instanceof ApiError && err.status === 404;
@@ -729,6 +877,9 @@ export default function App() {
       const items = await getJobScholarships(mappedId);
       catalogCacheRef.current[jobId] = items;
       catalogCacheRef.current[mappedId] = items;
+      if (activeJobIdRef.current === jobId || activeJobIdRef.current === mappedId) {
+        setActiveCatalog(items);
+      }
       return items;
     }
   }, []);
@@ -745,6 +896,46 @@ export default function App() {
         };
       const next = updater(base);
       trackerRef.current[jobId] = next;
+
+      // Trigger milestone notifications when a scholarship transitions to Applied, Awarded, or first Working
+      const prevWorkingCount = Object.values(base.scholarships).filter(
+        (s) => s.status === "working",
+      ).length;
+      for (const [scholName, entry] of Object.entries(next.scholarships)) {
+        const prevStatus = base.scholarships[scholName]?.status || "not_started";
+        if (entry.status === prevStatus) continue;
+        if (entry.status === "applied") {
+          emitMilestone({
+            idKey: `applied:${jobId}:${scholName}`,
+            badge: "Milestone · Applied",
+            title: `Marked Applied — ${scholName}`,
+            message: "Huge step forward! Keep your momentum going with the next target on your list.",
+            tone: "teal",
+            icon: "award",
+            action: { label: "View tracker", tab: "tracker", trackerQuery: scholName },
+          });
+        } else if (entry.status === "awarded") {
+          emitMilestone({
+            idKey: `awarded:${jobId}:${scholName}`,
+            badge: "Awarded!",
+            title: `Congratulations — ${scholName}`,
+            message: "Amazing achievement! Marked as Awarded in your scholarship tracker.",
+            tone: "lemon",
+            icon: "award",
+            action: { label: "View tracker", tab: "tracker", trackerQuery: scholName },
+          });
+        } else if (entry.status === "working" && prevWorkingCount === 0) {
+          emitMilestone({
+            idKey: `working:${jobId}:${scholName}`,
+            badge: "Deadline Watch Active",
+            title: `Tracking ${scholName}`,
+            message: "We'll prioritize this scholarship's upcoming deadline in your notifications.",
+            tone: "plum",
+            icon: "bell",
+            action: { label: "Open in Tracker", tab: "tracker", trackerQuery: scholName },
+          });
+        }
+      }
 
       const updatedJob: JobStatusResponse = {
         ...activeJob,
@@ -782,7 +973,7 @@ export default function App() {
         }
       }, 420);
     },
-    [activeJob],
+    [activeJob, emitMilestone],
   );
 
   const toggleRoadmapStepSynced = useCallback(
@@ -800,12 +991,130 @@ export default function App() {
     [handleUpdateTracker],
   );
 
-  const navigate = (next: WorkspaceTab) => {
+  const navigate = useCallback((next: WorkspaceTab) => {
     setTab(next);
     setIntakeMode(false);
     setSidebarOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
-  };
+  }, []);
+
+  // Preload catalog in background when tracked scholarships exist outside the top-5 rag_matches
+  useEffect(() => {
+    const jobId = activeJob?.job_id;
+    if (!jobId || !activeJob?.results?.profile) {
+      setActiveCatalog([]);
+      return;
+    }
+    if (catalogCacheRef.current[jobId]?.length) {
+      setActiveCatalog(catalogCacheRef.current[jobId]);
+      return;
+    }
+    const ragNames = new Set((activeJob.results.rag_matches?.matches || []).map((m) => m.name));
+    const trackedNames = Object.entries(activeJob.results.tracker?.scholarships || {})
+      .filter(([, e]) => e.status === "working" || e.status === "shortlisted")
+      .map(([name]) => name);
+    const needsFullCatalog = trackedNames.some((name) => !ragNames.has(name));
+    if (needsFullCatalog) {
+      void handleLoadCatalog(jobId).catch(() => {
+        // fallback cleanly to top-5 rag_matches
+      });
+    } else {
+      setActiveCatalog(activeJob.results.rag_matches?.matches || []);
+    }
+  }, [activeJob, handleLoadCatalog]);
+
+  const deadlineSummary = useMemo(
+    () => buildDeadlineNotifications(activeJob, activeCatalog),
+    [activeJob, activeCatalog],
+  );
+
+  const greetingNotif = useMemo(
+    () =>
+      buildGreetingNotification(
+        visitContext,
+        activeJob?.student_name || activeJob?.results?.profile?.name,
+        {
+          hasActiveProfile: Boolean(activeJob?.results?.profile),
+          urgentDeadlines: deadlineSummary.urgentCount,
+          trackedCount: deadlineSummary.trackedCount,
+          openTasksCount: deadlineSummary.openTasksCount,
+        },
+      ),
+    [activeJob, deadlineSummary, visitContext],
+  );
+
+  const allNotifications = useMemo(() => {
+    const dismissedSet = new Set(notifState.dismissedIds);
+    const combined: AppNotification[] = [
+      greetingNotif,
+      ...deadlineSummary.items,
+      ...notifState.events,
+    ];
+    const deduped = new Map<string, AppNotification>();
+    for (const item of combined) {
+      if (dismissedSet.has(item.id)) continue;
+      if (!deduped.has(item.id)) deduped.set(item.id, item);
+    }
+    return Array.from(deduped.values()).sort((a, b) => {
+      if (b.priority !== a.priority) return b.priority - a.priority;
+      return Date.parse(b.createdAt) - Date.parse(a.createdAt);
+    });
+  }, [deadlineSummary.items, greetingNotif, notifState.dismissedIds, notifState.events]);
+
+  const readIdSet = useMemo(() => new Set(notifState.readIds), [notifState.readIds]);
+
+  const handleMarkAllNotifsRead = useCallback(() => {
+    setNotifState((prev) => {
+      const merged = new Set([...prev.readIds, ...allNotifications.map((n) => n.id)]);
+      const next: StoredNotificationState = { ...prev, readIds: Array.from(merged) };
+      saveNotificationState(next);
+      return next;
+    });
+  }, [allNotifications]);
+
+  const handleClearAllNotifs = useCallback(() => {
+    setNotifState((prev) => {
+      const mergedDismissed = new Set([
+        ...prev.dismissedIds,
+        ...allNotifications.map((n) => n.id),
+      ]);
+      const mergedRead = new Set([...prev.readIds, ...allNotifications.map((n) => n.id)]);
+      const next: StoredNotificationState = {
+        readIds: Array.from(mergedRead),
+        dismissedIds: Array.from(mergedDismissed),
+        events: [],
+      };
+      saveNotificationState(next);
+      return next;
+    });
+    setActiveToasts([]);
+  }, [allNotifications]);
+
+  const handleNotificationAction = useCallback(
+    (action: NotificationAction, notifId: string) => {
+      handleMarkNotifRead(notifId);
+      if (action.capability && activeJob) {
+        setModalCap(action.capability);
+        return;
+      }
+      if (action.tab) {
+        if (action.tab === "tracker" && action.trackerQuery) {
+          setTrackerFocus({ text: action.trackerQuery, nonce: Date.now() });
+        }
+        navigate(action.tab);
+      }
+    },
+    [activeJob, handleMarkNotifRead, navigate],
+  );
+
+  // Show personalized arrival toast cleanly right after the boot overlay closes
+  useEffect(() => {
+    if (bootState.visible || greetingShownRef.current) return;
+    greetingShownRef.current = true;
+    if (!notifState.dismissedIds.includes(greetingNotif.id)) {
+      pushToast(greetingNotif, 7500);
+    }
+  }, [bootState.visible, greetingNotif, notifState.dismissedIds, pushToast]);
 
   const profile = activeJob?.results?.profile;
   const ragMatches = activeJob?.results?.rag_matches?.matches || [];
@@ -930,14 +1239,27 @@ export default function App() {
             </div>
           )}
 
-          <button
-            className="profile-button"
-            type="button"
-            title="Start new profile analysis"
-            onClick={() => setIntakeMode(true)}
-          >
-            <Icon name="user" size={17} />
-          </button>
+          <div className="topbar-actions">
+            <NotificationBell
+              notifications={allNotifications}
+              readIds={readIdSet}
+              visit={visitContext}
+              hasTrackedScholarships={deadlineSummary.trackedCount > 0}
+              onMarkRead={handleMarkNotifRead}
+              onMarkAllRead={handleMarkAllNotifsRead}
+              onDismiss={handleDismissNotif}
+              onClearAll={handleClearAllNotifs}
+              onAction={handleNotificationAction}
+            />
+            <button
+              className="profile-button"
+              type="button"
+              title="Start new profile analysis"
+              onClick={() => setIntakeMode(true)}
+            >
+              <Icon name="user" size={17} />
+            </button>
+          </div>
         </header>
 
         {!intakeMode && profile && activeJob && (
@@ -1060,6 +1382,7 @@ export default function App() {
             job={activeJob}
             isArchived={!isLatest}
             saveStatus={trackerSaveStatus}
+            focusQuery={trackerFocus}
             onLoadCatalog={handleLoadCatalog}
             onUpdateTracker={handleUpdateTracker}
           />
@@ -1075,6 +1398,12 @@ export default function App() {
           />
         )}
       </main>
+
+      <ToastStack
+        toasts={activeToasts}
+        onClose={dismissToast}
+        onAction={handleNotificationAction}
+      />
 
       {modalCap && activeJob && (
         <CapabilityModal
