@@ -93,8 +93,11 @@ export function OverviewView({
 
   const completedCount = roadmapList.filter((_, idx) => isStepChecked(idx)).length;
 
+  const [exportError, setExportError] = useState<string | null>(null);
+
   const handleExportReport = async () => {
     setExporting(true);
+    setExportError(null);
     try {
       const lines = [
         `Candidate: ${profile.name}`,
@@ -119,6 +122,8 @@ export function OverviewView({
         lines,
         `${profile.name.toLowerCase().replace(/\s+/g, "-")}-report.docx`,
       );
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "Could not export report.");
     } finally {
       setExporting(false);
     }
@@ -136,6 +141,12 @@ export function OverviewView({
           <Icon name="download" size={16} /> {exporting ? "Exporting…" : "Export report"}
         </button>
       </div>
+
+      {exportError && (
+        <div className="inline-banner err" role="alert">
+          <Icon name="alert" size={15} /> {exportError}
+        </div>
+      )}
 
       <section className="profile-card">
         <div className="profile-main">

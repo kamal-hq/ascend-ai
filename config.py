@@ -42,6 +42,19 @@ TAVILY_API_KEY: str = os.environ.get("TAVILY_API_KEY", "")
 BRAVE_API_KEY: str = os.environ.get("BRAVE_API_KEY", "")
 
 # ---------------------------------------------------------------------------
+# Proxy, Rate Limiting & Global AI Circuit Breaker
+# ---------------------------------------------------------------------------
+TRUSTED_PROXY_HOPS: int = max(0, int(os.environ.get("TRUSTED_PROXY_HOPS", "1")))
+GROQ_DAILY_CALL_LIMIT: int = max(1, int(os.environ.get("GROQ_DAILY_CALL_LIMIT", "500")))
+
+RATE_LIMIT_WINDOW_SECONDS: int = 3600
+RATE_LIMIT_JOBS_PER_HOUR: int = 20
+RATE_LIMIT_CV_PARSE_PER_HOUR: int = 10
+RATE_LIMIT_EXPORT_PER_HOUR: int = 20
+RATE_LIMIT_CAPABILITY_PER_HOUR: int = 60
+RATE_LIMIT_RESTORE_PER_HOUR: int = 30
+
+# ---------------------------------------------------------------------------
 # Model assignments & Capability Registry
 CORS_ORIGIN_REGEX: str | None = os.getenv("CORS_ORIGIN_REGEX") or r"https://.*\.vercel\.app"
 

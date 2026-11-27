@@ -50,11 +50,15 @@ export function CapabilityModal({
   onRegenerate: () => void;
 }) {
   const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
 
   const handleDocx = async (docTitle: string, content: string, filename: string) => {
     setDownloading(true);
+    setDownloadError(null);
     try {
       await exportDocx(docTitle, content, filename);
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : "Could not export .docx file.");
     } finally {
       setDownloading(false);
     }
@@ -574,7 +578,14 @@ export function CapabilityModal({
             </button>
           </div>
         </header>
-        <div className="drawer-body">{renderBody()}</div>
+        <div className="drawer-body">
+          {downloadError && (
+            <div className="inline-banner err" role="alert">
+              <Icon name="alert" size={15} /> {downloadError}
+            </div>
+          )}
+          {renderBody()}
+        </div>
       </section>
     </div>
   );

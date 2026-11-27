@@ -13,6 +13,7 @@ import time
 import requests
 
 from agents.common.cache import result_cache
+from agents.common.kickoff import GroqQuotaExceededError
 from agents.profile_agent import extract_profile
 from agents.rag_matcher import query_scholarships_structured
 from data.db import (
@@ -89,7 +90,7 @@ def run_eager_job(job_id: str, input_data: dict) -> None:
 
         update_job_status(job_id, "completed")
 
-    except ValueError as exc:
+    except (ValueError, GroqQuotaExceededError) as exc:
         safe_msg = str(exc)[:240]
         logger.warning("[%s] Eager phase validation error (%s)", job_id[:8], type(exc).__name__)
         save_result(job_id, "eager_error", {"error": safe_msg})

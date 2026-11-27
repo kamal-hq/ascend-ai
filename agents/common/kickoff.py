@@ -13,11 +13,13 @@ import re
 import threading
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, TypeVar
 
 import requests
 from pydantic import BaseModel, ValidationError
 
+import config
 from config import GROQ_API_KEY, MODEL_CAPABILITIES, MODEL_EAGER_PROFILE
 
 logger = logging.getLogger(__name__)
@@ -32,6 +34,60 @@ _SECRET_REDACT_RE = re.compile(
     r"(?:Bearer\s+\S+|\bgsk_[A-Za-z0-9]{10,}\b|\bsk-[A-Za-z0-9_-]{10,}\b|\btvly-[A-Za-z0-9_-]{10,}\b|\bBSA[A-Za-z0-9_-]{16,}\b)",
     re.IGNORECASE,
 )
+
+
+class GroqQuotaExceededError(RuntimeError):
+    """Raised when the global daily Groq budget or error circuit breaker trips."""
+
+
+class _GroqDailyBreaker:
+    """Global daily UTC call cap + consecutive hard-error circuit breaker."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._day: str = ""
+        self._daily_calls: int = 0
+        self._consecutive_hard_errors: int = 0
+        self._open_until: float = 0.0
+
+    def reset(self) -> None:
+        with self._lock:
+            self._day = ""
+            self._daily_calls = 0
+            self._consecutive_hard_errors = 0
+            self._open_until = 0.0
+
+    def acquire(self) -> None:
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        now = time.monotonic()
+        with self._lock:
+            if self._day != today:
+                self._day = today
+                self._daily_calls = 0
+            if now < self._open_until:
+                raise GroqQuotaExceededError(
+                    "AI service circuit breaker is temporarily open due to upstream errors. Please retry in a minute."
+                )
+            if self._daily_calls >= config.GROQ_DAILY_CALL_LIMIT:
+                raise GroqQuotaExceededError(
+                    "Daily AI capacity limit reached for this free-tier instance. Please try again tomorrow."
+                )
+            self._daily_calls += 1
+
+    def record_success(self) -> None:
+        with self._lock:
+            self._consecutive_hard_errors = 0
+            self._open_until = 0.0
+
+    def record_hard_error(self) -> None:
+        with self._lock:
+            self._consecutive_hard_errors += 1
+            if self._consecutive_hard_errors >= 5:
+                self._open_until = time.monotonic() + 60.0
+                logger.error("Groq circuit breaker opened for 60s after 5 consecutive upstream errors")
+
+
+_groq_breaker = _GroqDailyBreaker()
 
 
 def _redact_log_text(text: str, max_len: int = 240) -> str:
@@ -250,6 +306,7 @@ def safe_completion(
     use_json_mode = True
 
     for attempt in range(max_retries):
+        _groq_breaker.acquire()
         try:
             limiter.acquire(estimated_tokens=estimated_tokens)
         except TimeoutError as exc:
@@ -281,6 +338,7 @@ def safe_completion(
             )
         except requests.RequestException as exc:
             last_exc = exc
+            _groq_breaker.record_hard_error()
             if attempt + 1 < max_retries:
                 delay = _compute_backoff(attempt)
                 logger.warning(
@@ -292,6 +350,7 @@ def safe_completion(
             raise
 
         if resp.status_code == 200:
+            _groq_breaker.record_success()
             try:
                 body = resp.json()
                 choices = body.get("choices") or []
@@ -326,6 +385,8 @@ def safe_completion(
             "[GROQ_HTTP_%d] %s attempt %d: %s",
             resp.status_code, task_name, attempt + 1, err_text,
         )
+        if resp.status_code in (401, 403, 500, 502, 503, 504):
+            _groq_breaker.record_hard_error()
 
         if resp.status_code == 400 and "json_validate_failed" in err_lower and attempt + 1 < max_retries:
             use_json_mode = False

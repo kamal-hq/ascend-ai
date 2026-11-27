@@ -8,14 +8,17 @@ Routes mounted at ``/jobs`` by api/main.py:
     POST /jobs/{job_id}/capabilities/{capability}    Queue an atomic capability
 """
 
+import json
 import logging
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field, field_validator
 
+import config
 from agents.rag_matcher import query_scholarships_structured
 from api.demo import get_client_id, seed_demo_for_client
+from api.rate_limit import enforce_rate_limit
 from config import ALLOWED_CAPABILITIES
 from data.db import (
     count_jobs,
@@ -47,9 +50,10 @@ class JobCreateRequest(BaseModel):
     input_text: str = Field(
         ...,
         min_length=1,
+        max_length=25_000,
         description="Raw student notes, parsed CV text, or scraped LinkedIn text.",
     )
-    thread_id: str | None = None
+    thread_id: str | None = Field(default=None, max_length=64)
     base_version: int | None = Field(default=None, ge=1)
 
 
@@ -90,8 +94,8 @@ class JobStatusResponse(BaseModel):
 
 
 class CapabilityTriggerRequest(BaseModel):
-    custom_notes: str = ""
-    sop_text: str = ""
+    custom_notes: str = Field(default="", max_length=4_000)
+    sop_text: str = Field(default="", max_length=15_000)
 
 
 class CapabilityEnqueueResponse(BaseModel):
@@ -120,16 +124,16 @@ class JobListResponse(BaseModel):
 
 
 class JobRestoreItem(BaseModel):
-    job_id: str = ""
-    thread_id: str = ""
-    version: int = 1
-    source_text: str = ""
-    student_name: str = ""
-    target_program: str = ""
+    job_id: str = Field(default="", max_length=64)
+    thread_id: str = Field(default="", max_length=64)
+    version: int = Field(default=1, ge=1, le=500)
+    source_text: str = Field(default="", max_length=25_000)
+    student_name: str = Field(default="", max_length=160)
+    target_program: str = Field(default="", max_length=200)
     score: int | None = None
-    input_preview: str = ""
-    created_at: str = ""
-    updated_at: str = ""
+    input_preview: str = Field(default="", max_length=500)
+    created_at: str = Field(default="", max_length=64)
+    updated_at: str = Field(default="", max_length=64)
     results: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -151,7 +155,7 @@ class TrackerScholarshipEntry(BaseModel):
 
 
 class TrackerTaskItem(BaseModel):
-    id: str
+    id: str = Field(..., max_length=64)
     title: str = Field(..., min_length=1, max_length=240)
     timeframe: str = Field(default="", max_length=80)
     scholarship_name: str = Field(default="", max_length=160)
@@ -163,6 +167,13 @@ class TrackerPayload(BaseModel):
     scholarships: dict[str, TrackerScholarshipEntry] = Field(default_factory=dict)
     tasks: list[TrackerTaskItem] = Field(default_factory=list, max_length=200)
     roadmap_checked: list[int] = Field(default_factory=list, max_length=50)
+
+    @field_validator("scholarships")
+    @classmethod
+    def _cap_scholarships(cls, value: dict[str, TrackerScholarshipEntry]) -> dict[str, TrackerScholarshipEntry]:
+        if len(value) > 450:
+            raise ValueError("Tracker exceeds maximum 450 scholarship entries.")
+        return value
 
 
 # ---------------------------------------------------------------------------
@@ -176,8 +187,15 @@ class TrackerPayload(BaseModel):
 )
 def create_job_endpoint(
     req: JobCreateRequest,
+    request: Request,
     client_id: str = Depends(get_client_id),
 ):
+    enforce_rate_limit(
+        request,
+        bucket="jobs_create",
+        limit=config.RATE_LIMIT_JOBS_PER_HOUR,
+        client_id=client_id,
+    )
     prev_tracker_payload: dict | None = None
     if req.thread_id:
         revs = get_thread_revisions(req.thread_id, client_id)
@@ -222,6 +240,9 @@ def create_job_endpoint(
 # ---------------------------------------------------------------------------
 # POST /jobs/restore & POST /jobs/demo — browser workspace sync & isolated demo
 # ---------------------------------------------------------------------------
+_MAX_RESTORE_BATCH_BYTES = 2 * 1024 * 1024  # 2 MB
+
+
 @router.post(
     "/restore",
     status_code=200,
@@ -229,8 +250,19 @@ def create_job_endpoint(
 )
 def restore_jobs_endpoint(
     req: JobsRestoreRequest,
+    request: Request,
     client_id: str = Depends(get_client_id),
 ):
+    enforce_rate_limit(
+        request,
+        bucket="jobs_restore",
+        limit=config.RATE_LIMIT_RESTORE_PER_HOUR,
+        client_id=client_id,
+    )
+    raw_size = len(json.dumps([item.model_dump() for item in req.jobs], ensure_ascii=False).encode("utf-8"))
+    if raw_size > _MAX_RESTORE_BATCH_BYTES:
+        raise HTTPException(status_code=413, detail="Workspace restore payload exceeds 2 MB limit.")
+
     restored = []
     thread_id_map: dict[str, str] = {}
     for item in req.jobs:
@@ -397,9 +429,16 @@ def delete_job_endpoint(
 def enqueue_capability_endpoint(
     job_id: str,
     capability_name: str,
+    request: Request,
     req: CapabilityTriggerRequest | None = Body(default=None),
     client_id: str = Depends(get_client_id),
 ):
+    enforce_rate_limit(
+        request,
+        bucket="capabilities_trigger",
+        limit=config.RATE_LIMIT_CAPABILITY_PER_HOUR,
+        client_id=client_id,
+    )
     job = get_job(job_id, client_id=client_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")

@@ -245,7 +245,16 @@ export async function exportDocx(
     body: JSON.stringify({ title, content, filename }),
   });
   if (!res.ok) {
-    throw new Error(`DOCX export failed (${res.status})`);
+    let detail = `DOCX export failed (${res.status})`;
+    try {
+      const body = await res.json();
+      if (body?.detail) {
+        detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      }
+    } catch {
+      // ignore non-JSON body
+    }
+    throw new ApiError(detail, res.status);
   }
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);

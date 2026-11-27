@@ -9,6 +9,7 @@ per-capability status transitions (`running` -> `completed` | `failed`).
 import logging
 
 from agents.capabilities import dispatch_capability
+from agents.common.kickoff import GroqQuotaExceededError
 from data.db import get_results, save_capability_state
 
 logger = logging.getLogger(__name__)
@@ -51,7 +52,7 @@ def run_capability_job(
         save_capability_state(job_id, capability_name, "completed", payload=result)
         logger.info("[%s] Capability '%s' completed", job_id[:8], capability_name)
 
-    except ValueError as exc:
+    except (ValueError, GroqQuotaExceededError) as exc:
         safe_msg = str(exc)[:240]
         save_capability_state(
             job_id,
