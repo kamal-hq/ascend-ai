@@ -1,6 +1,6 @@
-# Proposal: Tighten Production CORS Configuration (`NEEDS APPROVAL`)
+# Proposal: Tighten Production CORS Configuration (`APPROVED & APPLIED`)
 
-> **Status:** Proposal only — **NOT applied**, per audit scope (Addition 7: do not change live CORS automatically).
+> **Status:** Approved by owner and applied on branch `security-compliance-audit` (`config.py`, `api/main.py`, `render.yaml`, `.env.example`), verified by `tests/test_regression_live.py` (`test_01_health_headers_and_tightened_cors`). Keep this file as the rollout & Render Dashboard verification record.
 
 ## Current Configuration (Confirmed Issue)
 

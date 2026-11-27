@@ -156,7 +156,7 @@ All automated checks below were executed on the current branch with **zero appli
 | `Strict-Transport-Security` | **ENFORCED** | All API responses: `max-age=31536000; includeSubDomains` |
 | `Cache-Control` | **ENFORCED** | `/jobs*`, `/inputs*`, `/export*` API responses: `no-store` |
 
-*(Note: `CORSMiddleware` in `api/main.py:42-49` and `config.py:46` is **unchanged** from `main`; tightening proposal is in [proposals/cors_tightening.md](proposals/cors_tightening.md).)*
+*(Note: `CORSMiddleware` in `api/main.py:42-49` and `config.py:29-59` was approved and tightened to `https://ascend-ai-sandy.vercel.app`, narrow preview regex `^https://ascend-ai(?:-[a-z0-9-]+)?\.vercel\.app$`, localhost dev origins, `allow_credentials=False`, and explicit methods/headers — see [proposals/cors_tightening.md](proposals/cors_tightening.md).)*
 
 ---
 

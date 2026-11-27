@@ -207,7 +207,7 @@ class TestLiveServerRegression(unittest.TestCase):
         if cls.tmp_dir is not None:
             shutil.rmtree(cls.tmp_dir, ignore_errors=True)
 
-    def test_01_health_headers_and_cors_unchanged(self) -> None:
+    def test_01_health_headers_and_tightened_cors(self) -> None:
         # Unauthenticated /health works for Render healthCheckPath and hides job counts
         r = requests.get(f"{self.base_url}/health", timeout=5)
         self.assertEqual(r.status_code, 200)
@@ -223,8 +223,12 @@ class TestLiveServerRegression(unittest.TestCase):
         self.assertIn("camera=()", r.headers.get("Permissions-Policy", ""))
         self.assertIn("max-age=31536000", r.headers.get("Strict-Transport-Security", ""))
 
-        # CORS preflight unchanged for production Vercel origin & localhost
-        for origin in ("https://ascend-ai-sandy.vercel.app", "http://localhost:5173"):
+        # Tightened CORS allows exact production Vercel origin, narrow Ascend preview URLs, and localhost
+        for origin in (
+            "https://ascend-ai-sandy.vercel.app",
+            "https://ascend-ai-git-preview-123.vercel.app",
+            "http://localhost:5173",
+        ):
             pre = requests.options(
                 f"{self.base_url}/jobs",
                 headers={
@@ -236,7 +240,19 @@ class TestLiveServerRegression(unittest.TestCase):
             )
             self.assertEqual(pre.status_code, 200)
             self.assertEqual(pre.headers.get("Access-Control-Allow-Origin"), origin)
-            self.assertEqual(pre.headers.get("Access-Control-Allow-Credentials"), "true")
+            self.assertIsNone(pre.headers.get("Access-Control-Allow-Credentials"))
+
+        # Unrelated third-party *.vercel.app origins are now rejected
+        bad_pre = requests.options(
+            f"{self.base_url}/jobs",
+            headers={
+                "Origin": "https://unrelated-attacker.vercel.app",
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "Content-Type, X-Client-Id",
+            },
+            timeout=5,
+        )
+        self.assertIsNone(bad_pre.headers.get("Access-Control-Allow-Origin"))
 
     def test_02_demo_seed_tracker_and_workspace_isolation_over_http(self) -> None:
         alice = {"X-Client-Id": "usr_alice_live_00001"}

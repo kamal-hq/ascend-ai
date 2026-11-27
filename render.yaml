@@ -11,5 +11,9 @@ services:
         value: 3.12.3
       - key: GROQ_API_KEY
         sync: false
+      - key: CORS_ORIGINS
+        value: https://ascend-ai-sandy.vercel.app
       - key: CORS_ORIGIN_REGEX
-        value: https://.*\.vercel\.app
+        value: ^https://ascend-ai(?:-[a-z0-9-]+)?\.vercel\.app$
+      - key: TRUSTED_PROXY_HOPS
+        value: "1"

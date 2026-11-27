@@ -27,6 +27,7 @@ GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "")
 REDIS_URL: str = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
 
 _DEFAULT_CORS = (
+    "https://ascend-ai-sandy.vercel.app,"
     "http://localhost:5173,http://127.0.0.1:5173,"
     "http://localhost:4173,http://127.0.0.1:4173,"
     "http://localhost:8443,http://127.0.0.1:8443"
@@ -56,7 +57,9 @@ RATE_LIMIT_RESTORE_PER_HOUR: int = 30
 
 # ---------------------------------------------------------------------------
 # Model assignments & Capability Registry
-CORS_ORIGIN_REGEX: str | None = os.getenv("CORS_ORIGIN_REGEX") or r"https://.*\.vercel\.app"
+CORS_ORIGIN_REGEX: str | None = (
+    os.getenv("CORS_ORIGIN_REGEX") or r"^https://ascend-ai(?:-[a-z0-9-]+)?\.vercel\.app$"
+)
 
 # ---------------------------------------------------------------------------
 MODEL_EAGER_PROFILE: str = "groq/openai/gpt-oss-120b"
