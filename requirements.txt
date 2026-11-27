@@ -6,7 +6,7 @@ langchain-community>=0.2.5
 duckduckgo-search==6.2.13
 arxiv>=2.1.0
 beautifulsoup4>=4.12.3
-requests>=2.31.0
+requests>=2.32.4
 youtube-search>=2.1.2
 
 # --- Document Parsing & Export ---
@@ -19,7 +19,7 @@ python-dotenv>=1.0.1
 # --- API, Job Queue & SSE (v3 architecture) ---
 fastapi>=0.111.0
 uvicorn[standard]>=0.30.0
-python-multipart>=0.0.9
+python-multipart>=0.0.18
 rq>=1.16.0
 redis>=5.0.0
 sse-starlette>=2.1.0

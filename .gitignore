@@ -1,6 +1,12 @@
 # Credentials & Env
 .env
+.env.*
+!.env.example
 frontend/.env
+frontend/.env.*
+!frontend/.env.example
+*.pem
+*.key
 
 # Python
 __pycache__/
