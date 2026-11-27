@@ -22,10 +22,12 @@ export function IntakeView({
   onAnalyze,
   eagerProgress,
   onOpenPrivacy,
+  onOpenLegal,
 }: {
   onAnalyze: (inputText: string) => Promise<void>;
   eagerProgress: EagerProgressState;
   onOpenPrivacy: () => void;
+  onOpenLegal: (doc: "privacy" | "terms") => void;
 }) {
   const [method, setMethod] = useState<"notes" | "cv">("notes");
   const [text, setText] = useState("");
@@ -198,11 +200,24 @@ export function IntakeView({
           </button>
         )}
 
+        <p className="groq-disclosure">
+          Submitted CV text, profile notes, and SOP drafts are sent to Groq for AI processing, and
+          uploaded PDF CVs may contain contact details.
+        </p>
+
         <div className="privacy-note">
           <span>Private &amp; on-device</span>Your CV insights, matches, and SOPs save automatically
           in this browser — never in a shared database.{" "}
           <button type="button" className="privacy-link-btn" onClick={onOpenPrivacy}>
             How data works
+          </button>
+          {" · "}
+          <button type="button" className="privacy-link-btn" onClick={() => onOpenLegal("privacy")}>
+            Privacy Policy
+          </button>
+          {" · "}
+          <button type="button" className="privacy-link-btn" onClick={() => onOpenLegal("terms")}>
+            Terms
           </button>
         </div>
       </section>

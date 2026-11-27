@@ -19,6 +19,7 @@ import {
 import { CapabilityModal } from "@/components/CapabilityModal";
 import { Icon, type IconName } from "@/components/Icon";
 import { IntakeView, type EagerProgressState } from "@/components/IntakeView";
+import { LegalView, type LegalDoc } from "@/components/LegalView";
 import { NotificationBell, ToastStack } from "@/components/NotificationCenter";
 import { OverviewView } from "@/components/OverviewView";
 import { PrivacyModal } from "@/components/PrivacyModal";
@@ -86,8 +87,20 @@ function findCapabilityTitle(cap: CapabilityName): string {
   return cap;
 }
 
+function readInitialLegalDoc(): LegalDoc | null {
+  try {
+    const path = window.location.pathname.replace(/\/+$/, "").toLowerCase();
+    if (path === "/privacy") return "privacy";
+    if (path === "/terms") return "terms";
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 export default function App() {
   const [tab, setTab] = useState<WorkspaceTab>("overview");
+  const [legalDoc, setLegalDoc] = useState<LegalDoc | null>(() => readInitialLegalDoc());
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [intakeMode, setIntakeMode] = useState(true);
   const [showAllHistory, setShowAllHistory] = useState(false);
@@ -992,10 +1005,38 @@ export default function App() {
   );
 
   const navigate = useCallback((next: WorkspaceTab) => {
+    setLegalDoc(null);
+    if (window.location.pathname === "/privacy" || window.location.pathname === "/terms") {
+      window.history.pushState({}, "", "/");
+    }
     setTab(next);
     setIntakeMode(false);
     setSidebarOpen(false);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  const openLegalDoc = useCallback((doc: LegalDoc) => {
+    setLegalDoc(doc);
+    setSidebarOpen(false);
+    const targetPath = doc === "privacy" ? "/privacy" : "/terms";
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState({}, "", targetPath);
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  const closeLegalDoc = useCallback(() => {
+    setLegalDoc(null);
+    if (window.location.pathname === "/privacy" || window.location.pathname === "/terms") {
+      window.history.pushState({}, "", "/");
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => setLegalDoc(readInitialLegalDoc());
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
   // Preload catalog in background when tracked scholarships exist outside the top-5 rag_matches
@@ -1147,6 +1188,7 @@ export default function App() {
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onNew={() => {
+          closeLegalDoc();
           setEagerProgress({
             active: false,
             jobId: null,
@@ -1159,9 +1201,12 @@ export default function App() {
           setSidebarOpen(false);
         }}
         sessions={sessions}
-        activeJobId={intakeMode ? null : activeJob?.job_id || null}
-        activeThreadId={intakeMode ? null : activeThreadId || null}
-        onSelectSession={(jid) => void loadJob(jid)}
+        activeJobId={intakeMode || legalDoc ? null : activeJob?.job_id || null}
+        activeThreadId={intakeMode || legalDoc ? null : activeThreadId || null}
+        onSelectSession={(jid) => {
+          closeLegalDoc();
+          void loadJob(jid);
+        }}
         onDeleteSession={(tid, jid) => void handleDeleteSession(tid, jid)}
         liveRate={liveRate}
         health={health}
@@ -1174,6 +1219,7 @@ export default function App() {
           setSidebarOpen(false);
           setPrivacyOpen(true);
         }}
+        onOpenLegal={openLegalDoc}
         onOpenHealthCheck={() => {
           setSidebarOpen(false);
           void runBootCheck(true);
@@ -1262,7 +1308,7 @@ export default function App() {
           </div>
         </header>
 
-        {!intakeMode && profile && activeJob && (
+        {!legalDoc && !intakeMode && profile && activeJob && (
           <>
             <div className="revision-bar">
               <div className="revision-nav">
@@ -1358,11 +1404,20 @@ export default function App() {
           </>
         )}
 
-        {intakeMode || !profile || !activeJob ? (
+        {legalDoc ? (
+          <LegalView
+            doc={legalDoc}
+            sessionCount={sessions.length}
+            onSwitchDoc={openLegalDoc}
+            onBack={closeLegalDoc}
+            onClearAllLocal={() => void handleClearAllLocal()}
+          />
+        ) : intakeMode || !profile || !activeJob ? (
           <IntakeView
             onAnalyze={handleAnalyze}
             eagerProgress={eagerProgress}
             onOpenPrivacy={() => setPrivacyOpen(true)}
+            onOpenLegal={openLegalDoc}
           />
         ) : tab === "overview" ? (
           <OverviewView
@@ -1433,6 +1488,7 @@ export default function App() {
         onClose={() => setPrivacyOpen(false)}
         onExportBackup={handleExportWorkspace}
         onClearAllLocal={() => void handleClearAllLocal()}
+        onOpenLegal={openLegalDoc}
       />
 
       {activeJob && (

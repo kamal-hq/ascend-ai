@@ -8,6 +8,7 @@ export function PrivacyModal({
   onClose,
   onExportBackup,
   onClearAllLocal,
+  onOpenLegal,
 }: {
   open: boolean;
   clientId: string;
@@ -15,6 +16,7 @@ export function PrivacyModal({
   onClose: () => void;
   onExportBackup: () => void;
   onClearAllLocal: () => void;
+  onOpenLegal: (doc: "privacy" | "terms") => void;
 }) {
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -71,8 +73,30 @@ export function PrivacyModal({
             <div>
               <strong>Isolated &amp; temporary backend compute</strong>
               <small>
-                Active AI requests are isolated to your browser ID, processed via Groq AI, and
-                automatically re-synced if the free-tier server sleeps between actions.
+                Active AI requests are isolated to your browser ID, sent to Groq for AI processing
+                (CVs may include contact details), and automatically re-synced if the free-tier
+                server resets on sleep.{" "}
+                <button
+                  type="button"
+                  className="privacy-link-btn"
+                  onClick={() => {
+                    onClose();
+                    onOpenLegal("privacy");
+                  }}
+                >
+                  Full Privacy Policy
+                </button>
+                {" · "}
+                <button
+                  type="button"
+                  className="privacy-link-btn"
+                  onClick={() => {
+                    onClose();
+                    onOpenLegal("terms");
+                  }}
+                >
+                  Terms
+                </button>
               </small>
             </div>
           </div>

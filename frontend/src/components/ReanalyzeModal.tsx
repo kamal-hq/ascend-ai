@@ -148,6 +148,10 @@ export function ReanalyzeModal({
           disabled={progress.active}
           placeholder="Update your profile notes, newly added projects, IELTS/GRE scores, or CV text…"
         />
+        <p className="groq-disclosure">
+          Submitted CV text, profile notes, and SOP drafts are sent to Groq for AI processing, and
+          uploaded PDF CVs may contain contact details.
+        </p>
 
         {isFromOlder && (
           <label className="reanalyze-confirm-check">

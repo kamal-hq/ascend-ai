@@ -38,6 +38,7 @@ export function Sidebar({
   onImportWorkspace,
   onLoadDemo,
   onOpenPrivacy,
+  onOpenLegal,
   onOpenHealthCheck,
   showAllHistory,
   onToggleShowAll,
@@ -58,6 +59,7 @@ export function Sidebar({
   onImportWorkspace: (file?: File | null) => void;
   onLoadDemo: () => void;
   onOpenPrivacy: () => void;
+  onOpenLegal: (doc: "privacy" | "terms") => void;
   onOpenHealthCheck: () => void;
   showAllHistory: boolean;
   onToggleShowAll: () => void;
@@ -248,6 +250,16 @@ export function Sidebar({
           </span>
           <span>API {health?.version || "v3"}</span>
         </button>
+
+        <footer className="sidebar-legal-footer" aria-label="Legal links">
+          <button type="button" onClick={() => onOpenLegal("privacy")}>
+            Privacy Policy
+          </button>
+          <span aria-hidden="true">·</span>
+          <button type="button" onClick={() => onOpenLegal("terms")}>
+            Terms of Service
+          </button>
+        </footer>
       </aside>
     </>
   );
