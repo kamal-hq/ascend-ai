@@ -5,7 +5,7 @@ import logging
 import re
 from pathlib import Path
 
-from fastapi import Header
+from fastapi import Header, HTTPException, Query
 
 from agents.rag_matcher import query_scholarships_structured
 from config import DEMO_SEED_JSON
@@ -19,20 +19,56 @@ from data.db import (
 
 logger = logging.getLogger(__name__)
 
-_CLIENT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{3,64}$")
+_CLIENT_ID_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}$")
+
+
+def parse_client_id(raw: str | None) -> str | None:
+    """Strictly validate an opaque workspace bearer ID. Returns None if missing/malformed."""
+    val = (raw or "").strip()
+    if val and _CLIENT_ID_RE.fullmatch(val):
+        return val
+    return None
 
 
 def normalize_client_id(raw: str | None) -> str:
-    """Validate/normalize a browser client workspace ID, falling back to 'default'."""
-    val = (raw or "").strip()
-    if _CLIENT_ID_RE.fullmatch(val):
-        return val
-    return "default"
+    """Validate a browser client workspace ID (backwards-compatible helper)."""
+    parsed = parse_client_id(raw)
+    if parsed is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return parsed
+
+
+def get_optional_client_id(
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+) -> str | None:
+    """Extract validated X-Client-Id when present (used by unauthenticated /health)."""
+    return parse_client_id(x_client_id)
+
+
+def require_client_id(
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+) -> str:
+    """Require a valid X-Client-Id bearer header; return 404 if missing or malformed."""
+    parsed = parse_client_id(x_client_id)
+    if parsed is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return parsed
+
+
+def require_stream_client_id(
+    client_id: str | None = Query(default=None),
+    x_client_id: str | None = Header(default=None, alias="X-Client-Id"),
+) -> str:
+    """Require a valid workspace ID via header or EventSource query parameter; return 404 otherwise."""
+    parsed = parse_client_id(x_client_id) or parse_client_id(client_id)
+    if parsed is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return parsed
 
 
 def get_client_id(x_client_id: str | None = Header(default=None, alias="X-Client-Id")) -> str:
-    """FastAPI dependency extracting sanitized X-Client-Id header."""
-    return normalize_client_id(x_client_id)
+    """Alias for require_client_id (enforces bearer workspace ID strictly)."""
+    return require_client_id(x_client_id)
 
 
 _DEMO_SOURCE_TEXT = (
@@ -44,9 +80,11 @@ _DEMO_SOURCE_TEXT = (
 )
 
 
-def seed_demo_for_client(client_id: str = "default") -> str | None:
+def seed_demo_for_client(client_id: str) -> str | None:
     """Seed one realistic Sara Ahmed workspace for *client_id* if they currently have 0 jobs."""
-    cid = normalize_client_id(client_id)
+    cid = parse_client_id(client_id)
+    if cid is None:
+        return None
     if count_jobs(client_id=cid) > 0:
         return None
     seed_path = Path(DEMO_SEED_JSON)
@@ -77,8 +115,8 @@ def seed_demo_for_client(client_id: str = "default") -> str | None:
                 {"matches": query_scholarships_structured(profile, n_results=5)},
             )
         update_job_status(job_id, "completed")
-        logger.info("Seeded demo workspace (%s) for client %s", job_id[:8], cid[:12])
+        logger.info("Seeded demo workspace (%s)", job_id[:8])
         return job_id
     except Exception:
-        logger.exception("Failed to seed demo workspace for client %s", cid[:12])
+        logger.exception("Failed to seed demo workspace")
         return None

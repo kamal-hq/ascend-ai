@@ -397,15 +397,15 @@ def enqueue_capability_endpoint(
     req: CapabilityTriggerRequest | None = Body(default=None),
     client_id: str = Depends(get_client_id),
 ):
-    if capability_name not in ALLOWED_CAPABILITIES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Unknown capability '{capability_name}'. Allowed: {sorted(ALLOWED_CAPABILITIES)}",
-        )
-
     job = get_job(job_id, client_id=client_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    if capability_name not in ALLOWED_CAPABILITIES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown capability '{capability_name}'.",
+        )
 
     thread_id = job.get("thread_id") or job_id
     revs = get_thread_revisions(thread_id, client_id)

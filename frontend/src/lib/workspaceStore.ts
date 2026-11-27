@@ -5,9 +5,11 @@ const WORKSPACE_KEY = "ascend.workspace.v1";
 const DEMO_INIT_KEY = "ascend.demo_init";
 const MAX_LOCAL_SESSIONS = 25;
 
+let ephemeralClientId: string | null = null;
+
 function generateClientId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return `usr_${crypto.randomUUID().replace(/-/g, "").slice(0, 16)}`;
+    return `usr_${crypto.randomUUID().replace(/-/g, "")}`;
   }
   return `usr_${Math.random().toString(36).slice(2, 14)}${Date.now().toString(36)}`;
 }
@@ -15,14 +17,17 @@ function generateClientId(): string {
 export function getClientId(): string {
   try {
     const existing = window.localStorage.getItem(CLIENT_ID_KEY)?.trim();
-    if (existing && /^[A-Za-z0-9_-]{3,64}$/.test(existing)) {
+    if (existing && /^[A-Za-z0-9_-]{8,64}$/.test(existing)) {
       return existing;
     }
     const created = generateClientId();
     window.localStorage.setItem(CLIENT_ID_KEY, created);
     return created;
   } catch {
-    return "default";
+    if (!ephemeralClientId) {
+      ephemeralClientId = generateClientId();
+    }
+    return ephemeralClientId;
   }
 }
 

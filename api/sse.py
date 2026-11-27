@@ -10,10 +10,10 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException
 from sse_starlette.sse import EventSourceResponse
 
-from api.demo import normalize_client_id
+from api.demo import require_stream_client_id
 from config import ALLOWED_CAPABILITIES
 from data.db import get_job, get_result, get_results
 
@@ -29,24 +29,26 @@ _MAX_WAIT: float = 180.0
     "/{job_id}/stream",
     summary="SSE stream of eager phase & capability updates for a job",
 )
-async def stream_job(job_id: str, client_id: str | None = Query(default=None)):
-    cid = normalize_client_id(client_id) if client_id else None
-    if get_job(job_id, client_id=cid) is None:
+async def stream_job(
+    job_id: str,
+    client_id: str = Depends(require_stream_client_id),
+):
+    if get_job(job_id, client_id=client_id) is None:
         raise HTTPException(status_code=404, detail="Job not found")
 
     return EventSourceResponse(
-        _job_event_generator(job_id),
+        _job_event_generator(job_id, client_id),
         media_type="text/event-stream",
     )
 
 
-async def _job_event_generator(job_id: str):
+async def _job_event_generator(job_id: str, client_id: str):
     """Yield SSE events as eager slices complete. Terminates when eager completes/fails."""
     seen_completed: set[str] = set()
     elapsed: float = 0.0
 
     while elapsed < _MAX_WAIT:
-        job = get_job(job_id)
+        job = get_job(job_id, client_id=client_id)
         if job is None:
             yield {"event": "error", "data": json.dumps({"error": "job_not_found"})}
             return
@@ -89,29 +91,33 @@ async def _job_event_generator(job_id: str):
 async def stream_capability(
     job_id: str,
     capability_name: str,
-    client_id: str | None = Query(default=None),
+    client_id: str = Depends(require_stream_client_id),
 ):
+    if get_job(job_id, client_id=client_id) is None:
+        raise HTTPException(status_code=404, detail="Job not found")
     if capability_name not in ALLOWED_CAPABILITIES:
         raise HTTPException(
             status_code=422,
-            detail=f"Unknown capability '{capability_name}'. Allowed: {sorted(ALLOWED_CAPABILITIES)}",
+            detail=f"Unknown capability '{capability_name}'.",
         )
-    cid = normalize_client_id(client_id) if client_id else None
-    if get_job(job_id, client_id=cid) is None:
-        raise HTTPException(status_code=404, detail="Job not found")
 
     return EventSourceResponse(
-        _capability_event_generator(job_id, capability_name),
+        _capability_event_generator(job_id, capability_name, client_id),
         media_type="text/event-stream",
     )
 
 
-async def _capability_event_generator(job_id: str, capability_name: str):
+async def _capability_event_generator(job_id: str, capability_name: str, client_id: str):
     """Stream capability status transitions (`queued` -> `running` -> `completed` | `failed`)."""
     last_status: str | None = None
     elapsed: float = 0.0
 
     while elapsed < _MAX_WAIT:
+        if get_job(job_id, client_id=client_id) is None:
+            yield {"event": "error", "data": json.dumps({"error": "job_not_found"})}
+            yield {"event": "done", "data": "{}"}
+            return
+
         row = get_result(job_id, capability_name)
         if row is not None:
             status = row.get("status", "completed")

@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from agents.common.cache import result_cache
 from agents.rag_matcher import _load_scholarships
-from api.demo import get_client_id, seed_demo_for_client
+from api.demo import get_optional_client_id
 from api.routes.jobs import router as jobs_router
 from api.routes.utilities import router as utilities_router
 from api.sse import router as sse_router
@@ -26,10 +26,8 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Create / migrate SQLite tables, preload scholarship index, and seed default DB."""
+    """Create / migrate SQLite tables and preload scholarship index."""
     init_db()
-    if count_jobs() == 0:
-        seed_demo_for_client("default")
     _load_scholarships()
     yield
 
@@ -54,7 +52,7 @@ app.add_middleware(
 @app.get("/health", tags=["system"])
 def health_check(
     warmup: bool = False,
-    client_id: str = Depends(get_client_id),
+    client_id: str | None = Depends(get_optional_client_id),
 ):
     """Readiness & free-tier warm-up check for the Vite frontend."""
     redis_ok = False
@@ -69,7 +67,7 @@ def health_check(
     db_ok = False
     jobs_count = 0
     try:
-        jobs_count = count_jobs(client_id=client_id)
+        jobs_count = count_jobs(client_id=client_id) if client_id else 0
         db_ok = True
     except Exception:
         db_ok = False

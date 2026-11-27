@@ -5,12 +5,16 @@ Supports seamless automatic schema migration on existing `data/ascend.db` files.
 """
 
 import json
+import re
 import sqlite3
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
 from config import SQLITE_DB_PATH
+
+_ALLOWED_TABLES = frozenset({"jobs", "results"})
+_SAFE_IDENT_RE = re.compile(r"^[a-z_][a-z0-9_]*$")
 
 
 @contextmanager
@@ -62,6 +66,8 @@ CREATE INDEX IF NOT EXISTS idx_results_job_id ON results(job_id);
 def _ensure_column(
     conn: sqlite3.Connection, table: str, column: str, definition: str
 ) -> None:
+    if table not in _ALLOWED_TABLES or not _SAFE_IDENT_RE.fullmatch(column):
+        raise ValueError(f"Unsafe schema identifier: {table}.{column}")
     cols = {
         row["name"]
         for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
@@ -340,7 +346,11 @@ def restore_job_snapshot(
         elif collided or not raw_tid or (raw_tid == raw_id and target_id != raw_id):
             target_tid = target_id
         else:
-            target_tid = raw_tid
+            other_owner = conn.execute(
+                "SELECT 1 FROM jobs WHERE thread_id = ? AND client_id != ? LIMIT 1",
+                (raw_tid, cid),
+            ).fetchone()
+            target_tid = target_id if other_owner is not None else raw_tid
 
         if existing is None:
             conn.execute(
