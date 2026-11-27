@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/Icon";
+import { toSafeHttpUrl } from "@/lib/safeUrl";
 import type {
   JobStatusResponse,
   RagScholarshipMatch,
@@ -625,16 +626,19 @@ export function TrackerView({
                             <span className="country-tag">
                               {item.country_code || "GL"} · {item.country}
                             </span>
-                            {item.url && (
-                              <a
-                                href={item.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                title="Official application portal"
-                              >
-                                Portal <Icon name="external" size={12} />
-                              </a>
-                            )}
+                            {(() => {
+                              const safeUrl = toSafeHttpUrl(item.url);
+                              return safeUrl ? (
+                                <a
+                                  href={safeUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title="Official application portal"
+                                >
+                                  Portal <Icon name="external" size={12} />
+                                </a>
+                              ) : null;
+                            })()}
                           </div>
                           <p className="schol-cell-sub">{item.fields}</p>
                           <small className="schol-cell-note">
@@ -782,16 +786,19 @@ export function TrackerView({
                               placeholder={isArchived ? "Read-only" : "Add comment or reminder…"}
                               onChange={(e) => setScholarshipComment(item.name, e.target.value)}
                             />
-                            {item.url && (
-                              <a
-                                href={item.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="ext-link"
-                              >
-                                Portal <Icon name="external" size={12} />
-                              </a>
-                            )}
+                            {(() => {
+                              const safeUrl = toSafeHttpUrl(item.url);
+                              return safeUrl ? (
+                                <a
+                                  href={safeUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="ext-link"
+                                >
+                                  Portal <Icon name="external" size={12} />
+                                </a>
+                              ) : null;
+                            })()}
                           </div>
                         </article>
                       );

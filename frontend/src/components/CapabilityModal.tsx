@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { exportDocx } from "@/api/client";
 import { Icon } from "@/components/Icon";
+import { toSafeHttpUrl } from "@/lib/safeUrl";
 import type {
   AcademiaVsIndustryResult,
   CapabilityName,
@@ -212,11 +213,14 @@ export function CapabilityModal({
                 </div>
                 <p>{v.source_snippet}</p>
                 {v.checked_note && <p className="meta-line">{v.checked_note}</p>}
-                {v.source_url && (
-                  <a href={v.source_url} target="_blank" rel="noopener noreferrer" className="ext-link">
-                    Verify official source <Icon name="external" size={13} />
-                  </a>
-                )}
+                {(() => {
+                  const safeUrl = toSafeHttpUrl(v.source_url);
+                  return safeUrl ? (
+                    <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="ext-link">
+                      Verify official source <Icon name="external" size={13} />
+                    </a>
+                  ) : null;
+                })()}
               </article>
             ))}
           </div>
@@ -388,11 +392,14 @@ export function CapabilityModal({
                   <span className="pill">{w.duration_hours_est}</span>
                 </div>
                 <p>{w.milestone}</p>
-                {w.video_url && (
-                  <a href={w.video_url} target="_blank" rel="noopener noreferrer" className="ext-link">
-                    ▶ {w.video_title || w.video_url} <Icon name="external" size={13} />
-                  </a>
-                )}
+                {(() => {
+                  const safeUrl = toSafeHttpUrl(w.video_url);
+                  return safeUrl ? (
+                    <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="ext-link">
+                      ▶ {w.video_title || safeUrl} <Icon name="external" size={13} />
+                    </a>
+                  ) : null;
+                })()}
               </article>
             ))}
           </div>
@@ -496,11 +503,14 @@ export function CapabilityModal({
                   <span className="pill">{inc.city}</span>
                 </div>
                 <p>{inc.why_fit}</p>
-                {inc.url && (
-                  <a href={inc.url} target="_blank" rel="noopener noreferrer" className="ext-link">
-                    Portal <Icon name="external" size={13} />
-                  </a>
-                )}
+                {(() => {
+                  const safeUrl = toSafeHttpUrl(inc.url);
+                  return safeUrl ? (
+                    <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="ext-link">
+                      Portal <Icon name="external" size={13} />
+                    </a>
+                  ) : null;
+                })()}
               </article>
             ))}
           </div>
@@ -513,11 +523,14 @@ export function CapabilityModal({
                   <span className="pill">{g.provider}</span>
                 </div>
                 <p>{g.funding_focus}</p>
-                {g.url && (
-                  <a href={g.url} target="_blank" rel="noopener noreferrer" className="ext-link">
-                    Details <Icon name="external" size={13} />
-                  </a>
-                )}
+                {(() => {
+                  const safeUrl = toSafeHttpUrl(g.url);
+                  return safeUrl ? (
+                    <a href={safeUrl} target="_blank" rel="noopener noreferrer" className="ext-link">
+                      Details <Icon name="external" size={13} />
+                    </a>
+                  ) : null;
+                })()}
               </article>
             ))}
           </div>

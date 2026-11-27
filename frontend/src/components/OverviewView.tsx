@@ -2,6 +2,7 @@ import { useState } from "react";
 import { exportDocx } from "@/api/client";
 import { Icon } from "@/components/Icon";
 import { getInitials } from "@/components/Sidebar";
+import { toSafeHttpUrl } from "@/lib/safeUrl";
 import type { ProfileResult, RagScholarshipMatch } from "@/types/api";
 
 function ScoreRing({ score }: { score: number }) {
@@ -299,16 +300,19 @@ export function OverviewView({
                   <div>
                     <i style={{ width: `${pct}%` }} />
                   </div>
-                  {item.url && (
-                    <a
-                      href={item.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="portal-link"
-                    >
-                      Official portal <Icon name="external" size={14} />
-                    </a>
-                  )}
+                  {(() => {
+                    const safeUrl = toSafeHttpUrl(item.url);
+                    return safeUrl ? (
+                      <a
+                        href={safeUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="portal-link"
+                      >
+                        Official portal <Icon name="external" size={14} />
+                      </a>
+                    ) : null;
+                  })()}
                 </div>
               </article>
             );
