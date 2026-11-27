@@ -51,13 +51,25 @@ def run_capability_job(
         save_capability_state(job_id, capability_name, "completed", payload=result)
         logger.info("[%s] Capability '%s' completed", job_id[:8], capability_name)
 
-    except Exception as exc:
+    except ValueError as exc:
+        safe_msg = str(exc)[:240]
         save_capability_state(
             job_id,
             capability_name,
             "failed",
-            payload={"error": str(exc)},
-            error_message=str(exc),
+            payload={"error": safe_msg},
+            error_message=safe_msg,
         )
-        logger.exception("[%s] Capability '%s' failed", job_id[:8], capability_name)
+        logger.warning("[%s] Capability '%s' validation error (%s)", job_id[:8], capability_name, type(exc).__name__)
+        raise
+    except Exception as exc:
+        safe_msg = "Capability failed due to a temporary AI or search error. Please retry."
+        save_capability_state(
+            job_id,
+            capability_name,
+            "failed",
+            payload={"error": safe_msg},
+            error_message=safe_msg,
+        )
+        logger.error("[%s] Capability '%s' failed (%s)", job_id[:8], capability_name, type(exc).__name__)
         raise

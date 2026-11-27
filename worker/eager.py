@@ -89,8 +89,15 @@ def run_eager_job(job_id: str, input_data: dict) -> None:
 
         update_job_status(job_id, "completed")
 
+    except ValueError as exc:
+        safe_msg = str(exc)[:240]
+        logger.warning("[%s] Eager phase validation error (%s)", job_id[:8], type(exc).__name__)
+        save_result(job_id, "eager_error", {"error": safe_msg})
+        update_job_status(job_id, "failed")
+        raise
     except Exception as exc:
-        logger.exception("[%s] Eager phase failed: %s", job_id[:8], exc)
-        save_result(job_id, "eager_error", {"error": str(exc)})
+        safe_msg = "Analysis failed due to a temporary AI service error. Please try again."
+        logger.error("[%s] Eager phase failed (%s)", job_id[:8], type(exc).__name__)
+        save_result(job_id, "eager_error", {"error": safe_msg})
         update_job_status(job_id, "failed")
         raise

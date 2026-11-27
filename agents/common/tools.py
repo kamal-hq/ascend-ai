@@ -7,6 +7,7 @@ DuckDuckGo, ArXiv, YouTube, or direct HTTP scraping.
 
 import logging
 import random
+import re
 import time
 
 import requests
@@ -18,10 +19,20 @@ from agents.common.cache import result_cache
 
 logger = logging.getLogger(__name__)
 
+_EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b")
+_PHONE_RE = re.compile(r"(?:\+?\d[\d\s().-]{7,}\d)")
 
-def _cached_run(source: str, query: str, fetcher) -> str:
+
+def _scrub_query_pii(query: str) -> str:
+    """Remove accidental email addresses or phone numbers before external search/caching."""
+    cleaned = _EMAIL_RE.sub("", query)
+    cleaned = _PHONE_RE.sub("", cleaned)
+    return " ".join(cleaned.split())[:220]
+
+
+def _cached_run(source: str, query: str, fetcher, *, scrub_pii: bool = True) -> str:
     """Lookup query in SQLite 7-day cache; fetch & cache on miss."""
-    clean_query = query.strip()
+    clean_query = _scrub_query_pii(query) if scrub_pii else query.strip()
     if not clean_query:
         return "Empty query."
 
@@ -37,8 +48,8 @@ def _cached_run(source: str, query: str, fetcher) -> str:
             result_cache.put(source, clean_query, text)
         return text or "No results returned."
     except Exception as exc:
-        logger.warning("Tool '%s' failed for query '%s': %s", source, clean_query[:80], exc)
-        return f"Search error ({source}): {exc}"
+        logger.warning("External lookup '%s' failed (%s)", source, type(exc).__name__)
+        return f"Search error ({source}): lookup unavailable."
 
 
 def search_internet(query: str) -> str:

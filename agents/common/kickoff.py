@@ -26,6 +26,17 @@ T = TypeVar("T", bound=BaseModel)
 
 _GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
 _http_session = requests.Session()
+_http_session.trust_env = False
+
+_SECRET_REDACT_RE = re.compile(
+    r"(?:Bearer\s+\S+|\bgsk_[A-Za-z0-9]{10,}\b|\bsk-[A-Za-z0-9_-]{10,}\b|\btvly-[A-Za-z0-9_-]{10,}\b|\bBSA[A-Za-z0-9_-]{16,}\b)",
+    re.IGNORECASE,
+)
+
+
+def _redact_log_text(text: str, max_len: int = 240) -> str:
+    """Strip any accidental secret/token substrings before logging or returning error text."""
+    return _SECRET_REDACT_RE.sub("[REDACTED]", str(text or ""))[:max_len]
 
 # ---------------------------------------------------------------------------
 # Model-level rate-limit ceilings (org-wide, per model pool)
@@ -272,7 +283,10 @@ def safe_completion(
             last_exc = exc
             if attempt + 1 < max_retries:
                 delay = _compute_backoff(attempt)
-                logger.warning("[HTTP_RETRY] %s network error (%s), sleeping %.1fs", task_name, exc, delay)
+                logger.warning(
+                    "[HTTP_RETRY] %s network error (%s), sleeping %.1fs",
+                    task_name, type(exc).__name__, delay,
+                )
                 time.sleep(delay)
                 continue
             raise
@@ -290,12 +304,15 @@ def safe_completion(
                 return validated
             except (json.JSONDecodeError, ValidationError, ValueError, KeyError, IndexError) as exc:
                 last_exc = exc
-                logger.warning("[JSON_RETRY] %s attempt %d invalid JSON/schema: %s", task_name, attempt + 1, exc)
+                logger.warning(
+                    "[JSON_RETRY] %s attempt %d invalid JSON/schema (%s)",
+                    task_name, attempt + 1, type(exc).__name__,
+                )
                 if attempt + 1 < max_retries:
                     prepared.append({
                         "role": "user",
                         "content": (
-                            f"Previous response failed JSON validation ({exc}). "
+                            f"Previous response failed JSON validation ({type(exc).__name__}). "
                             "Return ONLY a corrected raw JSON object matching the schema."
                         ),
                     })
@@ -303,7 +320,7 @@ def safe_completion(
                     continue
                 raise
 
-        err_text = resp.text[:1000]
+        err_text = _redact_log_text(resp.text, max_len=300)
         err_lower = err_text.lower()
         logger.warning(
             "[GROQ_HTTP_%d] %s attempt %d: %s",
@@ -330,7 +347,7 @@ def safe_completion(
             time.sleep(min(wait, 90.0))
             continue
 
-        raise RuntimeError(f"Groq API error ({resp.status_code}) in {task_name}: {err_text}")
+        raise RuntimeError(f"AI provider error ({resp.status_code}) in {task_name}")
 
     if last_exc is not None:
         raise last_exc

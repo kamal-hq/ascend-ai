@@ -99,11 +99,12 @@ class ResultCache:
 
     def get(self, source: str, query: str) -> Any | None:
         """Return cached result or ``None`` on miss / expiry."""
+        qhash = self._hash(query)
         conn = self._conn()
         row = conn.execute(
             "SELECT result, created_at FROM search_cache "
             "WHERE source = ? AND query_hash = ?",
-            (source, self._hash(query)),
+            (source, qhash),
         ).fetchone()
 
         if row is None:
@@ -115,30 +116,31 @@ class ResultCache:
             # Stale — delete and treat as miss
             conn.execute(
                 "DELETE FROM search_cache WHERE source = ? AND query_hash = ?",
-                (source, self._hash(query)),
+                (source, qhash),
             )
             conn.commit()
-            logger.debug("Cache EXPIRED for %s:%s (%.0f s old)", source, query[:60], age)
+            logger.debug("Cache EXPIRED for %s:%s (%.0f s old)", source, qhash[:10], age)
             return None
 
-        logger.debug("Cache HIT for %s:%s (%.0f s old)", source, query[:60], age)
+        logger.debug("Cache HIT for %s:%s (%.0f s old)", source, qhash[:10], age)
         try:
             return json.loads(result_json)
         except (json.JSONDecodeError, TypeError):
             return result_json  # stored as plain string, return as-is
 
     def put(self, source: str, query: str, result: Any) -> None:
-        """Insert or replace a cache entry."""
+        """Insert or replace a cache entry keyed strictly by SHA-256 hash (no raw query stored)."""
+        qhash = self._hash(query)
         serialized = json.dumps(result, default=str)
         conn = self._conn()
         conn.execute(
             "INSERT OR REPLACE INTO search_cache "
             "(source, query_hash, query_raw, result, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (source, self._hash(query), query, serialized, time.time()),
+            "VALUES (?, ?, '', ?, ?)",
+            (source, qhash, serialized, time.time()),
         )
         conn.commit()
-        logger.debug("Cache PUT for %s:%s", source, query[:60])
+        logger.debug("Cache PUT for %s:%s", source, qhash[:10])
 
     def evict_expired(self) -> int:
         """Remove all entries older than the TTL. Returns count deleted."""

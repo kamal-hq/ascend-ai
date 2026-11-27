@@ -209,9 +209,12 @@ def create_job_endpoint(
     try:
         enqueue_eager(job_id, input_data)
     except Exception as exc:
-        logger.exception("Failed to enqueue eager job %s", job_id)
+        logger.error("Failed to enqueue eager job %s (%s)", job_id[:8], type(exc).__name__)
         update_job_status(job_id, "failed")
-        raise HTTPException(status_code=500, detail=f"Queue error: {exc}") from exc
+        raise HTTPException(
+            status_code=503,
+            detail="Analysis queue is temporarily unavailable. Please try again shortly.",
+        ) from exc
 
     return JobCreateResponse(job_id=job_id, status="running")
 
@@ -429,17 +432,21 @@ def enqueue_capability_endpoint(
     try:
         enqueue_capability(job_id, capability_name, options=options)
     except Exception as exc:
-        logger.exception(
-            "Failed to enqueue capability %s for job %s", capability_name, job_id
+        logger.error(
+            "Failed to enqueue capability %s for job %s (%s)",
+            capability_name,
+            job_id[:8],
+            type(exc).__name__,
         )
+        safe_err = "Capability queue is temporarily unavailable. Please try again shortly."
         save_capability_state(
             job_id,
             capability_name,
             "failed",
-            payload={"error": f"Queue error: {exc}"},
-            error_message=f"Queue error: {exc}",
+            payload={"error": safe_err},
+            error_message=safe_err,
         )
-        raise HTTPException(status_code=500, detail=f"Queue error: {exc}") from exc
+        raise HTTPException(status_code=503, detail=safe_err) from exc
 
     return CapabilityEnqueueResponse(
         job_id=job_id,

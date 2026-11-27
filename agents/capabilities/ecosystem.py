@@ -9,11 +9,10 @@ from agents.schemas import LocalEcosystemResult
 
 def run_local_ecosystem(profile: dict) -> dict:
     """Identify 2 Pakistani incubators, 1+ funding grant, and active local tech communities."""
-    university = str(profile.get("university", "") or "Pakistan")
-    field = str(profile.get("target_program") or profile.get("career_goal") or "AI and software")
+    field = str(profile.get("target_program") or profile.get("career_goal") or "AI and software")[:80]
 
     lookups = [
-        (f"National Incubation Center NIC Plan9 Pakistan tech incubator {university}", search_internet),
+        ("National Incubation Center NIC Plan9 Pakistan tech incubator", search_internet),
         ("Ignite NGIRI HEC technology startup funding grant Pakistan apply", search_internet),
         (f"Pakistan tech developer AI startup community {field}", search_internet),
     ]

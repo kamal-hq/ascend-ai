@@ -62,8 +62,11 @@ async def parse_cv_endpoint(file: UploadFile = File(...)):
     except HTTPException:
         raise
     except Exception as exc:
-        logger.warning("PDF parse failed for %s: %s", filename, exc)
-        raise HTTPException(status_code=422, detail=f"Failed to parse PDF: {exc}") from exc
+        logger.warning("PDF parse failed (%s)", type(exc).__name__)
+        raise HTTPException(
+            status_code=422,
+            detail="Could not parse this PDF file. Please verify it is a valid text-based PDF or paste notes instead.",
+        ) from exc
 
 
 @router.post("/export/docx", summary="Export generated SOP, Proposal, or Report as a .docx Word file")
